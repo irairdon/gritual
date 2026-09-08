@@ -12,18 +12,23 @@ import (
 	_ "time/tzdata"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/irairdon/gritual/internal/ai"
 	"github.com/irairdon/gritual/internal/auth"
 	"github.com/irairdon/gritual/internal/challenges"
+	"github.com/irairdon/gritual/internal/chat"
 	"github.com/irairdon/gritual/internal/circles"
 	"github.com/irairdon/gritual/internal/config"
 	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/feed"
 	"github.com/irairdon/gritual/internal/httpx"
+	"github.com/irairdon/gritual/internal/jobs"
 	"github.com/irairdon/gritual/internal/logs"
+	"github.com/irairdon/gritual/internal/mcp"
 	"github.com/irairdon/gritual/internal/meals"
 	"github.com/irairdon/gritual/internal/media"
 	"github.com/irairdon/gritual/internal/rituals"
+	"github.com/irairdon/gritual/internal/tools"
 	"github.com/irairdon/gritual/internal/webui"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -79,6 +84,8 @@ func main() {
 	var ready httpxPinger
 	var mountAPI func(chi.Router)
 	var mediaGET http.HandlerFunc
+	var mcpH http.Handler
+	var jobPoller *jobs.Poller
 	if pool != nil {
 		ready = pool
 		authAPI := auth.New(cfg, pool)
@@ -87,12 +94,20 @@ func main() {
 		logAPI := logs.New(cfg, pool)
 		mediaAPI := media.New(cfg, pool, authAPI.RequestUserID)
 		chalAPI := challenges.New(cfg, pool)
-		var vision ai.Provider
+		var provider ai.Provider
 		if cfg.AIEnabled && cfg.XAIAPIKey != "" {
-			vision = ai.NewClient(cfg.XAIAPIKey, nil)
+			provider = ai.NewClient(cfg.XAIAPIKey, nil)
 		}
-		mealAPI := meals.New(cfg, pool, mediaAPI, vision)
+		mealAPI := meals.New(cfg, pool, mediaAPI, provider)
 		feedAPI := feed.New(cfg, pool)
+		toolRunner := tools.New(logAPI, mealAPI, ritAPI, chalAPI, func(ctx context.Context, userID uuid.UUID) (string, error) {
+			var tz string
+			err := pool.QueryRow(ctx, `SELECT tz FROM users WHERE id = $1`, userID).Scan(&tz)
+			return tz, err
+		})
+		chatAPI := chat.New(cfg, pool, provider, toolRunner)
+		mcpH = mcp.New(cfg, authAPI, toolRunner)
+		jobPoller = jobs.New(cfg, pool, chalAPI)
 		mountAPI = func(r chi.Router) {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
@@ -102,13 +117,14 @@ func main() {
 			chalAPI.Mount(r)
 			mealAPI.Mount(r)
 			feedAPI.Mount(r)
+			chatAPI.Mount(r)
 		}
 		mediaGET = mediaAPI.HandleGet
 	}
 
 	public := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpx.NewRouter(ui, ready, mountAPI, mediaGET),
+		Handler:           httpx.NewRouterMCP(ui, ready, mountAPI, mediaGET, mcpH),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
@@ -135,6 +151,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if jobPoller != nil {
+		go jobPoller.Run(ctx)
+	}
 
 	select {
 	case <-ctx.Done():

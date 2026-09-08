@@ -29,6 +29,7 @@ type Config struct {
 	XAIModel       string
 	XAIVisionModel string
 	AIEnabled      bool
+	MCPEnabled     bool
 }
 
 func Load() (Config, error) {
@@ -81,6 +82,11 @@ func Load() (Config, error) {
 		c.AIEnabled = truthy(v)
 	} else {
 		c.AIEnabled = c.XAIAPIKey != ""
+	}
+	if v, ok := os.LookupEnv("MCP_ENABLED"); ok && strings.TrimSpace(v) != "" {
+		c.MCPEnabled = truthy(v)
+	} else {
+		c.MCPEnabled = true
 	}
 	return c, nil
 }

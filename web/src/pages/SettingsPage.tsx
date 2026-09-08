@@ -1,7 +1,15 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api, readError, type User } from "../api";
 import { useAuth } from "../auth";
 import { reencodeJPEG } from "../jpeg";
+
+type AgentToken = {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+};
 
 export default function SettingsPage() {
   const { user, loading, setUser } = useAuth();
@@ -10,6 +18,20 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [tokens, setTokens] = useState<AgentToken[]>([]);
+  const [tokenName, setTokenName] = useState("");
+  const [shownToken, setShownToken] = useState("");
+
+  async function loadTokens() {
+    const res = await api("/api/v1/me/tokens");
+    if (!res.ok) return;
+    const body = (await res.json()) as { items: AgentToken[] };
+    setTokens(body.items ?? []);
+  }
+
+  useEffect(() => {
+    if (!loading && user) void loadTokens();
+  }, [loading, user]);
 
   if (loading) return <p className="text-stone-500">Loading…</p>;
   if (!user) return <p className="text-stone-600">Log in to manage your account.</p>;
@@ -189,6 +211,77 @@ export default function SettingsPage() {
           Save profile
         </button>
       </form>
+
+      <section className="space-y-3 rounded border border-stone-200 bg-white p-4">
+        <h2 className="font-medium">Agents</h2>
+        <p className="text-sm text-stone-600">
+          Personal access tokens for MCP at <code>/mcp</code>. Shown once. Claude and Cursor use{" "}
+          <code>Authorization: Bearer</code>.
+        </p>
+        <ul className="space-y-2 text-sm">
+          {tokens.map((t) => (
+            <li key={t.id} className="flex items-center justify-between gap-2">
+              <span>
+                {t.name} <span className="text-stone-500">{t.prefix}…</span>
+              </span>
+              <button
+                type="button"
+                className="text-red-700"
+                onClick={() => {
+                  void (async () => {
+                    const res = await api(`/api/v1/me/tokens/${t.id}`, { method: "DELETE" });
+                    if (!res.ok) {
+                      setError(await readError(res));
+                      return;
+                    }
+                    await loadTokens();
+                  })();
+                }}
+              >
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+        {shownToken ? (
+          <p className="break-all rounded bg-stone-100 p-2 text-sm">
+            Copy now: <code>{shownToken}</code>
+          </p>
+        ) : null}
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void (async () => {
+              setError("");
+              setShownToken("");
+              const res = await api("/api/v1/me/tokens", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: tokenName || "mcp" }),
+              });
+              if (!res.ok) {
+                setError(await readError(res));
+                return;
+              }
+              const created = (await res.json()) as AgentToken & { token: string };
+              setShownToken(created.token);
+              setTokenName("");
+              await loadTokens();
+            })();
+          }}
+        >
+          <input
+            className="flex-1 rounded border border-stone-300 px-3 py-2"
+            placeholder="Token name"
+            value={tokenName}
+            onChange={(e) => setTokenName(e.target.value)}
+          />
+          <button className="rounded bg-stone-900 px-4 py-2 text-white" type="submit">
+            Create
+          </button>
+        </form>
+      </section>
 
       <section className="space-y-3 rounded border border-red-200 bg-red-50 p-4">
         <h2 className="font-medium text-red-900">Delete account</h2>

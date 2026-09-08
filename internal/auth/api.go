@@ -68,6 +68,9 @@ func (a *API) Mount(r chi.Router) {
 	r.Patch("/me", a.require(a.handlePatchMe))
 	r.Post("/me/ai-consent", a.require(a.handleAIConsent))
 	r.Delete("/me", a.require(a.handleDeleteMe))
+	r.Get("/me/tokens", a.require(a.handleListTokens))
+	r.Post("/me/tokens", a.require(a.handleCreateToken))
+	r.Delete("/me/tokens/{id}", a.require(a.handleRevokeToken))
 	r.Get("/admin/audit", a.require(a.requireAdmin(a.handleAdminAudit)))
 }
 

@@ -14,19 +14,24 @@ import (
 )
 
 type Client struct {
-	HTTP    *http.Client
-	APIKey  string
-	BaseURL string
+	HTTP     *http.Client
+	ChatHTTP *http.Client
+	APIKey   string
+	BaseURL  string
 }
 
 func NewClient(apiKey string, httpClient *http.Client) *Client {
+	vision := httpClient
+	chat := httpClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 25 * time.Second}
+		vision = &http.Client{Timeout: 25 * time.Second}
+		chat = &http.Client{Timeout: 55 * time.Second}
 	}
 	return &Client{
-		HTTP:    httpClient,
-		APIKey:  apiKey,
-		BaseURL: DefaultBaseURL,
+		HTTP:     vision,
+		ChatHTTP: chat,
+		APIKey:   apiKey,
+		BaseURL:  DefaultBaseURL,
 	}
 }
 

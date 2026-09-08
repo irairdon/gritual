@@ -136,6 +136,51 @@ func TestCompletionsWire(t *testing.T) {
 	}
 }
 
+func TestChatStreamWire(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != CompletionsPath {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("json: %v", err)
+		}
+		if payload["stream"] != true {
+			t.Errorf("stream = %v", payload["stream"])
+		}
+		tools, _ := payload["tools"].([]any)
+		if len(tools) == 0 {
+			t.Errorf("missing tools")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"log_weight\",\"arguments\":\"{\\\"lb\\\":204}\"}}]}}]}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := NewClient("k", srv.Client())
+	c.BaseURL = srv.URL
+	var tokens string
+	res, err := c.ChatStream(context.Background(), ChatRequest{
+		User:     "abcdabcdabcdabcd",
+		Model:    DefaultModel,
+		Messages: []ChatMessage{{Role: "user", Content: "log 204"}},
+		Tools:    ToolSpecs(),
+	}, func(d StreamDelta) error {
+		tokens += d.Text
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokens != "Hi" {
+		t.Fatalf("tokens = %q", tokens)
+	}
+	if len(res.ToolCalls) != 1 || res.ToolCalls[0].Name != ToolLogWeight {
+		t.Fatalf("tool calls = %+v", res.ToolCalls)
+	}
+}
+
 func TestCompletionsHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
