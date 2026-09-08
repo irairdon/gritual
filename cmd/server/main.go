@@ -17,7 +17,9 @@ import (
 	"github.com/irairdon/gritual/internal/config"
 	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/httpx"
+	"github.com/irairdon/gritual/internal/logs"
 	"github.com/irairdon/gritual/internal/media"
+	"github.com/irairdon/gritual/internal/rituals"
 	"github.com/irairdon/gritual/internal/webui"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -77,10 +79,14 @@ func main() {
 		ready = pool
 		authAPI := auth.New(cfg, pool)
 		circAPI := circles.New(cfg, pool)
+		ritAPI := rituals.New(cfg, pool)
+		logAPI := logs.New(cfg, pool)
 		mediaAPI := media.New(cfg, pool, authAPI.RequestUserID)
 		mountAPI = func(r chi.Router) {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
+			ritAPI.Mount(r)
+			logAPI.Mount(r)
 			mediaAPI.Mount(r)
 		}
 		mediaGET = mediaAPI.HandleGet

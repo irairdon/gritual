@@ -122,6 +122,44 @@ export type Invite = {
   max_uses: number | null;
 };
 
+export type RitualType = "weight" | "workout" | "habit" | "fishing" | "meal" | "custom";
+
+export type Ritual = {
+  id: string;
+  owner_user_id: string | null;
+  circle_id: string | null;
+  type: RitualType;
+  title: string;
+  target_value: number | null;
+  target_unit: string | null;
+  direction: "at_least" | "at_most" | "hit";
+  period: "none" | "daily" | "weekly" | "season" | "date_range";
+  scoring_key: string;
+  created_at: string;
+};
+
+export type LogItem = {
+  id: string;
+  type: RitualType;
+  logged_at: string;
+  visibility: string;
+  notes: string | null;
+  ritual_id: string | null;
+  weight?: { kg: number; lb: number };
+  workout?: {
+    title: string;
+    sets: { exercise: string; reps: number | null; weight_kg: number | null; rpe: number | null; ordinal: number }[];
+  };
+  habit?: { status: "done" | "skip" };
+  fishing?: {
+    water_body: string | null;
+    lat: number | null;
+    lng: number | null;
+    catches: { species: string | null; count: number }[];
+  };
+  custom?: { value: number; unit: string };
+};
+
 export function safeNext(raw: string | null): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/";
   return raw;
