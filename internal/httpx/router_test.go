@@ -20,7 +20,7 @@ func TestRouter(t *testing.T) {
 			Data: []byte("console.log(1)"),
 		},
 	}
-	h := NewRouter(ui, nil)
+	h := NewRouter(ui, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -255,7 +255,7 @@ func TestReadyz(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 			rec := httptest.NewRecorder()
-			NewRouter(ui, tt.db).ServeHTTP(rec, req)
+			NewRouter(ui, tt.db, nil).ServeHTTP(rec, req)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}
