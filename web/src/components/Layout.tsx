@@ -17,6 +17,15 @@ export default function Layout() {
             </Link>
             {user ? (
               <>
+                <Link to="/" className="text-stone-600 hover:text-stone-900">
+                  Circles
+                </Link>
+                <Link to="/rituals" className="text-stone-600 hover:text-stone-900">
+                  Rituals
+                </Link>
+                <Link to="/logs" className="text-stone-600 hover:text-stone-900">
+                  Logs
+                </Link>
                 <Link to="/settings" className="text-stone-600 hover:text-stone-900">
                   Settings
                 </Link>

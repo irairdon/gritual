@@ -5,8 +5,10 @@ import CirclePage from "./pages/CirclePage";
 import HomePage from "./pages/HomePage";
 import JoinPage from "./pages/JoinPage";
 import LoginPage from "./pages/LoginPage";
+import LogsPage from "./pages/LogsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import RegisterPage from "./pages/RegisterPage";
+import RitualsPage from "./pages/RitualsPage";
 import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
@@ -15,6 +17,8 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/circles/:id" element={<CirclePage />} />
+        <Route path="/rituals" element={<RitualsPage />} />
+        <Route path="/logs" element={<LogsPage />} />
         <Route path="/join/:token" element={<JoinPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
