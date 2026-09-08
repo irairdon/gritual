@@ -42,12 +42,14 @@ type refreshReq struct {
 }
 
 type patchMeReq struct {
-	DisplayName  *string `json:"display_name"`
-	Units        *string `json:"units"`
-	TZ           *string `json:"tz"`
-	CalorieGoal  *int    `json:"calorie_goal"`
-	ProteinGoalG *int    `json:"protein_goal_g"`
-	Bio          *string `json:"bio"`
+	DisplayName   *string  `json:"display_name"`
+	Units         *string  `json:"units"`
+	TZ            *string  `json:"tz"`
+	CalorieGoal   *int     `json:"calorie_goal"`
+	ProteinGoalG  *int     `json:"protein_goal_g"`
+	Bio           *string  `json:"bio"`
+	HeightCM      *float64 `json:"height_cm"`
+	AvatarMediaID *string  `json:"avatar_media_id"`
 }
 
 func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -494,6 +496,49 @@ func (a *API) handlePatchMe(w http.ResponseWriter, r *http.Request) {
 			INSERT INTO profiles (user_id, bio) VALUES ($1, $2)
 			ON CONFLICT (user_id) DO UPDATE SET bio = EXCLUDED.bio
 		`, u.ID, *req.Bio); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+	}
+	if req.HeightCM != nil {
+		if _, err := a.pool.Exec(ctx, `
+			INSERT INTO profiles (user_id, height_cm) VALUES ($1, $2)
+			ON CONFLICT (user_id) DO UPDATE SET height_cm = EXCLUDED.height_cm
+		`, u.ID, *req.HeightCM); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+	}
+	if req.AvatarMediaID != nil {
+		var mediaID any
+		if strings.TrimSpace(*req.AvatarMediaID) == "" {
+			mediaID = nil
+		} else {
+			id, err := uuid.Parse(strings.TrimSpace(*req.AvatarMediaID))
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid", "invalid avatar_media_id")
+				return
+			}
+			var owner uuid.UUID
+			err = a.pool.QueryRow(ctx, `SELECT user_id FROM media_objects WHERE id = $1`, id).Scan(&owner)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					httpx.WriteError(w, http.StatusNotFound, "not_found", "media not found")
+					return
+				}
+				httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
+				return
+			}
+			if owner != u.ID {
+				httpx.WriteError(w, http.StatusForbidden, "forbidden", "not your media")
+				return
+			}
+			mediaID = id
+		}
+		if _, err := a.pool.Exec(ctx, `
+			INSERT INTO profiles (user_id, avatar_media_id) VALUES ($1, $2)
+			ON CONFLICT (user_id) DO UPDATE SET avatar_media_id = EXCLUDED.avatar_media_id
+		`, u.ID, mediaID); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
 			return
 		}

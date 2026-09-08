@@ -25,7 +25,7 @@ type pinger interface {
 	Ping(ctx context.Context) error
 }
 
-func NewRouter(ui fs.FS, db pinger, mountAPI func(chi.Router)) http.Handler {
+func NewRouter(ui fs.FS, db pinger, mountAPI func(chi.Router), mediaGET http.HandlerFunc) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID)
 
@@ -48,7 +48,10 @@ func NewRouter(ui fs.FS, db pinger, mountAPI func(chi.Router)) http.Handler {
 	r.Get("/mcp", handleMCP)
 	r.Post("/mcp", handleMCP)
 
-	r.Get("/media/{id}", handleMedia)
+	if mediaGET == nil {
+		mediaGET = handleMedia
+	}
+	r.Get("/media/{id}", mediaGET)
 
 	r.Get("/.well-known/apple-app-site-association", handleAASA)
 	r.Get("/.well-known/assetlinks.json", handleAssetLinks)
