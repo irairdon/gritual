@@ -11,8 +11,6 @@ import (
 
 	_ "time/tzdata"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/httpx"
 	"github.com/irairdon/gritual/internal/webui"
@@ -43,7 +41,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	var pool *pgxpool.Pool
+	var ready interface {
+		Ping(context.Context) error
+	}
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
 		openCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		p, err := db.Open(openCtx, dsn)
@@ -60,14 +60,14 @@ func main() {
 			slog.Error("migrations", "err", err)
 			os.Exit(1)
 		}
-		pool = p
+		ready = p
 	} else {
 		slog.Warn("DATABASE_URL unset; starting without database")
 	}
 
 	public := &http.Server{
 		Addr:              httpAddr,
-		Handler:           httpx.NewRouter(ui, pool),
+		Handler:           httpx.NewRouter(ui, ready),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,

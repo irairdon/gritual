@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 
@@ -98,7 +99,7 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func handleReady(db pinger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if db != nil {
+		if hasPinger(db) {
 			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 			defer cancel()
 			if err := db.Ping(ctx); err != nil {
@@ -109,6 +110,19 @@ func handleReady(db pinger) http.HandlerFunc {
 			}
 		}
 		handleHealth(w, r)
+	}
+}
+
+func hasPinger(db pinger) bool {
+	if db == nil {
+		return false
+	}
+	v := reflect.ValueOf(db)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan:
+		return !v.IsNil()
+	default:
+		return true
 	}
 }
 

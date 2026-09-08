@@ -247,6 +247,7 @@ func TestReadyz(t *testing.T) {
 		wantBody   string
 	}{
 		{name: "no db", db: nil, wantStatus: http.StatusOK, wantBody: "ok"},
+		{name: "typed nil pointer", db: (*stubPinger)(nil), wantStatus: http.StatusOK, wantBody: "ok"},
 		{name: "ping ok", db: stubPinger{}, wantStatus: http.StatusOK, wantBody: "ok"},
 		{name: "ping fail", db: stubPinger{err: io.ErrUnexpectedEOF}, wantStatus: http.StatusServiceUnavailable, wantBody: "not ready"},
 	}
