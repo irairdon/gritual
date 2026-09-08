@@ -11,9 +11,13 @@ import (
 
 	_ "time/tzdata"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/irairdon/gritual/internal/auth"
+	"github.com/irairdon/gritual/internal/config"
 	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/httpx"
 	"github.com/irairdon/gritual/internal/webui"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -26,11 +30,12 @@ func main() {
 		},
 	})))
 
-	httpAddr := env("HTTP_ADDR", ":8080")
-	metricsAddr := env("METRICS_ADDR", "127.0.0.1:9090")
-	_ = env("APP_BASE_URL", "http://localhost:8080")
-	mediaDir := env("MEDIA_DIR", "./data/media")
-	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+	if err := os.MkdirAll(cfg.MediaDir, 0o755); err != nil {
 		slog.Error("mkdir media", "err", err)
 		os.Exit(1)
 	}
@@ -41,12 +46,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	var ready interface {
-		Ping(context.Context) error
-	}
-	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+	var pool *pgxpool.Pool
+	if cfg.DatabaseURL != "" {
 		openCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		p, err := db.Open(openCtx, dsn)
+		p, err := db.Open(openCtx, cfg.DatabaseURL)
 		cancel()
 		if err != nil {
 			slog.Error("db open", "err", err)
@@ -60,33 +63,40 @@ func main() {
 			slog.Error("migrations", "err", err)
 			os.Exit(1)
 		}
-		ready = p
+		pool = p
 	} else {
 		slog.Warn("DATABASE_URL unset; starting without database")
 	}
 
+	var ready httpxPinger
+	var mountAPI func(chi.Router)
+	if pool != nil {
+		ready = pool
+		mountAPI = auth.New(cfg, pool).Mount
+	}
+
 	public := &http.Server{
-		Addr:              httpAddr,
-		Handler:           httpx.NewRouter(ui, ready),
+		Addr:              cfg.HTTPAddr,
+		Handler:           httpx.NewRouter(ui, ready, mountAPI),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
 	}
 	metrics := &http.Server{
-		Addr:              metricsAddr,
+		Addr:              cfg.MetricsAddr,
 		Handler:           httpx.MetricsMux(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	errCh := make(chan error, 2)
 	go func() {
-		slog.Info("http listen", "addr", httpAddr)
+		slog.Info("http listen", "addr", cfg.HTTPAddr)
 		if err := public.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()
 	go func() {
-		slog.Info("metrics listen", "addr", metricsAddr)
+		slog.Info("metrics listen", "addr", cfg.MetricsAddr)
 		if err := metrics.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
@@ -108,9 +118,6 @@ func main() {
 	_ = metrics.Shutdown(shutdownCtx)
 }
 
-func env(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+type httpxPinger interface {
+	Ping(context.Context) error
 }

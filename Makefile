@@ -9,7 +9,13 @@ web:
 dev:
 	docker compose up -d postgres
 	@echo "API http://127.0.0.1:8080  UI http://127.0.0.1:5173  (Ctrl-C stops both; postgres stays up)"
-	@bash -c 'set -e; trap "kill 0" EXIT INT TERM; go run ./cmd/server & cd web && { [ -d node_modules ] || npm ci; } && npm run dev'
+	@bash -c 'set -e; trap "kill 0" EXIT INT TERM; \
+	  AUTH_DEV_LOGIN=1 \
+	  DATABASE_URL=postgres://gritual:gritual@127.0.0.1:5432/gritual?sslmode=disable \
+	  APP_BASE_URL=http://localhost:8080 \
+	  VITE_DEV_ORIGIN=http://localhost:5173 \
+	  go run ./cmd/server & \
+	  cd web && { [ -d node_modules ] || npm ci; } && npm run dev'
 
 test:
 	go test ./...

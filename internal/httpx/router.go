@@ -25,7 +25,7 @@ type pinger interface {
 	Ping(ctx context.Context) error
 }
 
-func NewRouter(ui fs.FS, db pinger) http.Handler {
+func NewRouter(ui fs.FS, db pinger, mountAPI func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID)
 
@@ -34,7 +34,13 @@ func NewRouter(ui fs.FS, db pinger) http.Handler {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/ping", handlePing)
+		if mountAPI != nil {
+			mountAPI(r)
+		}
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+			WriteError(w, http.StatusNotFound, "not_found", "not found")
+		})
+		r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
 			WriteError(w, http.StatusNotFound, "not_found", "not found")
 		})
 	})
