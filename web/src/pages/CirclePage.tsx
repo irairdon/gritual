@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, readError, type Challenge, type ChallengeType, type Circle, type CircleMember, type Invite } from "../api";
 import { useAuth } from "../auth";
+import CircleFeed from "../components/CircleFeed";
 import InviteQR from "../components/InviteQR";
 
 export default function CirclePage() {
@@ -189,6 +190,8 @@ export default function CirclePage() {
       </div>
 
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
+
+      <CircleFeed circleId={circle.id} userId={user.id} role={circle.role} />
 
       <section className="space-y-3">
         <h2 className="font-medium">Challenges</h2>

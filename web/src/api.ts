@@ -166,6 +166,32 @@ export type StandingEntry = {
   detail?: { baseline_kg?: number; current_kg?: number };
 };
 
+export type FeedReaction = "like" | "fire" | "fish" | "strong" | "heart";
+
+export type FeedComment = {
+  id: string;
+  post_id: string;
+  user_id: string | null;
+  display_name: string;
+  body: string;
+  created_at: string;
+};
+
+export type FeedPost = {
+  id: string;
+  circle_id: string;
+  user_id: string | null;
+  display_name: string;
+  log_id: string | null;
+  challenge_id: string | null;
+  body: string | null;
+  created_at: string;
+  log?: { id: string; type: string; logged_at: string; visibility: string; notes: string | null };
+  comments: FeedComment[];
+  reactions: Record<FeedReaction, number>;
+  my_reaction: FeedReaction | null;
+};
+
 export type LogItem = {
   id: string;
   type: RitualType;
