@@ -77,6 +77,8 @@ export type User = {
   calorie_goal?: number | null;
   protein_goal_g?: number | null;
   bio?: string | null;
+  height_cm?: number | null;
+  avatar_media_id?: string | null;
   is_admin?: boolean;
 };
 

@@ -81,6 +81,8 @@ type User struct {
 	CalorieGoal   *int
 	ProteinGoalG  *int
 	Bio           *string
+	HeightCM      *float64
+	AvatarMediaID *uuid.UUID
 }
 
 type loginUser struct {
@@ -98,16 +100,18 @@ type loginResponse struct {
 }
 
 type meResponse struct {
-	ID            string  `json:"id"`
-	Email         string  `json:"email"`
-	DisplayName   string  `json:"display_name"`
-	EmailVerified bool    `json:"email_verified"`
-	Units         string  `json:"units"`
-	TZ            string  `json:"tz"`
-	CalorieGoal   *int    `json:"calorie_goal"`
-	ProteinGoalG  *int    `json:"protein_goal_g"`
-	Bio           *string `json:"bio"`
-	IsAdmin       bool    `json:"is_admin"`
+	ID            string   `json:"id"`
+	Email         string   `json:"email"`
+	DisplayName   string   `json:"display_name"`
+	EmailVerified bool     `json:"email_verified"`
+	Units         string   `json:"units"`
+	TZ            string   `json:"tz"`
+	CalorieGoal   *int     `json:"calorie_goal"`
+	ProteinGoalG  *int     `json:"protein_goal_g"`
+	Bio           *string  `json:"bio"`
+	HeightCM      *float64 `json:"height_cm"`
+	AvatarMediaID *string  `json:"avatar_media_id"`
+	IsAdmin       bool     `json:"is_admin"`
 }
 
 func UserFrom(ctx context.Context) *User {
@@ -158,6 +162,17 @@ func (a *API) userFromRequest(r *http.Request) (*User, error) {
 		return nil, nil
 	}
 	return a.userFromToken(r.Context(), c.Value, "cookie")
+}
+
+func (a *API) RequestUserID(r *http.Request) (uuid.UUID, bool) {
+	if u := UserFrom(r.Context()); u != nil {
+		return u.ID, true
+	}
+	u, err := a.userFromRequest(r)
+	if err != nil || u == nil {
+		return uuid.Nil, false
+	}
+	return u.ID, true
 }
 
 func (a *API) userFromToken(ctx context.Context, raw, kind string) (*User, error) {
@@ -273,6 +288,11 @@ func (a *API) clearCookie(w http.ResponseWriter) {
 }
 
 func (u *User) me() meResponse {
+	var avatar *string
+	if u.AvatarMediaID != nil {
+		s := u.AvatarMediaID.String()
+		avatar = &s
+	}
 	return meResponse{
 		ID:            u.ID.String(),
 		Email:         u.Email,
@@ -283,6 +303,8 @@ func (u *User) me() meResponse {
 		CalorieGoal:   u.CalorieGoal,
 		ProteinGoalG:  u.ProteinGoalG,
 		Bio:           u.Bio,
+		HeightCM:      u.HeightCM,
+		AvatarMediaID: avatar,
 		IsAdmin:       u.IsAdmin,
 	}
 }
@@ -319,13 +341,13 @@ func loadUserByID(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*User,
 	var verifiedAt *time.Time
 	err := pool.QueryRow(ctx, `
 		SELECT u.id, u.email::text, u.display_name, u.email_verified_at, u.is_admin,
-		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio
+		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio, p.height_cm, p.avatar_media_id
 		FROM users u
 		LEFT JOIN profiles p ON p.user_id = u.id
 		WHERE u.id = $1 AND u.deleted_at IS NULL
 	`, id).Scan(
 		&u.ID, &u.Email, &u.DisplayName, &verifiedAt, &u.IsAdmin,
-		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio,
+		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio, &u.HeightCM, &u.AvatarMediaID,
 	)
 	if err != nil {
 		return nil, err
@@ -339,13 +361,13 @@ func loadUserByEmail(ctx context.Context, pool *pgxpool.Pool, email string) (*Us
 	var verifiedAt *time.Time
 	err := pool.QueryRow(ctx, `
 		SELECT u.id, u.email::text, u.display_name, u.email_verified_at, u.is_admin,
-		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio
+		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio, p.height_cm, p.avatar_media_id
 		FROM users u
 		LEFT JOIN profiles p ON p.user_id = u.id
 		WHERE u.email = $1 AND u.deleted_at IS NULL
 	`, email).Scan(
 		&u.ID, &u.Email, &u.DisplayName, &verifiedAt, &u.IsAdmin,
-		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio,
+		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio, &u.HeightCM, &u.AvatarMediaID,
 	)
 	if err != nil {
 		return nil, err

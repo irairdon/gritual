@@ -70,7 +70,7 @@ func newHarness(t *testing.T, cfg config.Config) *harness {
 	mail := &recMailer{}
 	api := newAPI(cfg, pool, mail)
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html>")}}
-	return &harness{t: t, pool: pool, cfg: cfg, mail: mail, h: httpx.NewRouter(ui, pool, api.Mount)}
+	return &harness{t: t, pool: pool, cfg: cfg, mail: mail, h: httpx.NewRouter(ui, pool, api.Mount, nil)}
 }
 
 func (h *harness) do(method, path, origin string, cookie *http.Cookie, body any, extra func(*http.Request)) *http.Response {

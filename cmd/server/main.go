@@ -16,6 +16,7 @@ import (
 	"github.com/irairdon/gritual/internal/config"
 	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/httpx"
+	"github.com/irairdon/gritual/internal/media"
 	"github.com/irairdon/gritual/internal/webui"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -70,14 +71,21 @@ func main() {
 
 	var ready httpxPinger
 	var mountAPI func(chi.Router)
+	var mediaGET http.HandlerFunc
 	if pool != nil {
 		ready = pool
-		mountAPI = auth.New(cfg, pool).Mount
+		authAPI := auth.New(cfg, pool)
+		mediaAPI := media.New(cfg, pool, authAPI.RequestUserID)
+		mountAPI = func(r chi.Router) {
+			authAPI.Mount(r)
+			mediaAPI.Mount(r)
+		}
+		mediaGET = mediaAPI.HandleGet
 	}
 
 	public := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpx.NewRouter(ui, ready, mountAPI),
+		Handler:           httpx.NewRouter(ui, ready, mountAPI, mediaGET),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
