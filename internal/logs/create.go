@@ -261,12 +261,21 @@ func (a *API) insertLog(ctx context.Context, userID uuid.UUID, typ string, field
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// If the author is in overlapping challenges, pin the ritual-specific one, else earliest start.
+	challengeID, challengeCircle, err := matchChallenge(ctx, tx, userID, typ, fields.RitualID, loggedAt)
+	if err != nil {
+		return nil, err
+	}
+	if challengeID != nil {
+		vis = "challenge"
+	}
+
 	var id uuid.UUID
 	err = tx.QueryRow(ctx, `
-		INSERT INTO logs (user_id, ritual_id, type, logged_at, visibility, notes, source)
-		VALUES ($1, $2, $3, $4, $5, $6, 'app')
+		INSERT INTO logs (user_id, ritual_id, challenge_id, type, logged_at, visibility, notes, source)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'app')
 		RETURNING id
-	`, userID, fields.RitualID, typ, loggedAt, vis, trimPtr(fields.Notes)).Scan(&id)
+	`, userID, fields.RitualID, challengeID, typ, loggedAt, vis, trimPtr(fields.Notes)).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -281,10 +290,41 @@ func (a *API) insertLog(ctx context.Context, userID uuid.UUID, typ string, field
 			return nil, err
 		}
 	}
+	if challengeCircle != nil {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO log_circles (log_id, circle_id) VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, id, *challengeCircle); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return a.loadLog(ctx, id, userID)
+}
+
+func matchChallenge(ctx context.Context, tx pgx.Tx, userID uuid.UUID, typ string, ritualID *uuid.UUID, loggedAt time.Time) (*uuid.UUID, *uuid.UUID, error) {
+	var id, circleID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT c.id, c.circle_id
+		FROM challenges c
+		JOIN challenge_participants p ON p.challenge_id = c.id AND p.user_id = $1
+		WHERE $2 >= c.starts_at AND $2 < c.ends_at
+		  AND (
+		    (c.ritual_id IS NOT NULL AND c.ritual_id = $3)
+		    OR (c.ritual_id IS NULL AND c.type = $4)
+		  )
+		ORDER BY (c.ritual_id IS NOT NULL) DESC, c.starts_at ASC, c.id ASC
+		LIMIT 1
+	`, userID, loggedAt, ritualID, typ).Scan(&id, &circleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	return &id, &circleID, nil
 }
 
 type ritualRef struct {
