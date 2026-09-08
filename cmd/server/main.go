@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/irairdon/gritual/internal/auth"
+	"github.com/irairdon/gritual/internal/challenges"
 	"github.com/irairdon/gritual/internal/circles"
 	"github.com/irairdon/gritual/internal/config"
 	"github.com/irairdon/gritual/internal/db"
@@ -82,12 +83,14 @@ func main() {
 		ritAPI := rituals.New(cfg, pool)
 		logAPI := logs.New(cfg, pool)
 		mediaAPI := media.New(cfg, pool, authAPI.RequestUserID)
+		chalAPI := challenges.New(cfg, pool)
 		mountAPI = func(r chi.Router) {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
 			ritAPI.Mount(r)
 			logAPI.Mount(r)
 			mediaAPI.Mount(r)
+			chalAPI.Mount(r)
 		}
 		mediaGET = mediaAPI.HandleGet
 	}

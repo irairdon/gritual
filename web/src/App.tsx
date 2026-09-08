@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import AuthMagicPage from "./pages/AuthMagicPage";
+import ChallengePage from "./pages/ChallengePage";
 import CirclePage from "./pages/CirclePage";
 import HomePage from "./pages/HomePage";
 import JoinPage from "./pages/JoinPage";
@@ -17,6 +18,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/circles/:id" element={<CirclePage />} />
+        <Route path="/challenges/:id" element={<ChallengePage />} />
         <Route path="/rituals" element={<RitualsPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/join/:token" element={<JoinPage />} />

@@ -138,6 +138,33 @@ export type Ritual = {
   created_at: string;
 };
 
+export type ChallengeType = "weight" | "workout" | "habit" | "fishing" | "custom";
+
+export type Challenge = {
+  id: string;
+  circle_id: string;
+  ritual_id: string | null;
+  type: ChallengeType;
+  scoring_key: string;
+  direction: "at_most" | "at_least" | null;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+  require_photo: boolean;
+  join_policy: "opt_in";
+  created_at: string;
+  joined: boolean;
+  participant_count: number;
+};
+
+export type StandingEntry = {
+  user_id: string;
+  display_name: string;
+  points: number;
+  last_event_at: string | null;
+  detail?: { baseline_kg?: number; current_kg?: number };
+};
+
 export type LogItem = {
   id: string;
   type: RitualType;
@@ -145,6 +172,7 @@ export type LogItem = {
   visibility: string;
   notes: string | null;
   ritual_id: string | null;
+  challenge_id?: string | null;
   weight?: { kg: number; lb: number };
   workout?: {
     title: string;
