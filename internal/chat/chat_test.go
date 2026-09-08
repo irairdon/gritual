@@ -39,6 +39,7 @@ type harness struct {
 	h    http.Handler
 	stub *ai.Stub
 	cfg  config.Config
+	chat *API
 }
 
 func newHarness(t *testing.T) *harness {
@@ -81,6 +82,7 @@ func newHarness(t *testing.T) *harness {
 		pool: pool,
 		stub: stub,
 		cfg:  cfg,
+		chat: chatAPI,
 		h: httpx.NewRouterMCP(ui, pool, func(r chi.Router) {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
@@ -321,6 +323,42 @@ func TestCoachChatAndMCP(t *testing.T) {
 		if !found {
 			t.Fatal("weight log missing from GET /logs")
 		}
+
+		var convID string
+		for _, e := range events {
+			if e.Event == "done" {
+				var p struct {
+					ConversationID string `json:"conversation_id"`
+				}
+				_ = json.Unmarshal([]byte(e.Data), &p)
+				convID = p.ConversationID
+			}
+		}
+		if convID == "" {
+			t.Fatal("missing conversation_id after tool round")
+		}
+		id := uuid.MustParse(convID)
+		loaded, err := h.chat.loadMessages(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertReplayableTools(t, loaded)
+
+		h.stub.ChatCalls = 0
+		h.stub.ChatRounds = []ai.ChatRound{{Text: "Welcome back."}}
+		res = h.do(http.MethodPost, "/api/v1/ai/chat", cookie, map[string]any{
+			"conversation_id": convID,
+			"message":         "thanks",
+		})
+		b, _ = io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("resume status = %d body=%s", res.StatusCode, b)
+		}
+		assertReplayableTools(t, h.stub.LastChat.Messages)
+		if h.stub.ChatCalls < 1 {
+			t.Fatal("expected resumed chat call")
+		}
 	})
 
 	t.Run("GET /logs still no drafts", func(t *testing.T) {
@@ -485,6 +523,55 @@ func TestCoachChatAndMCP(t *testing.T) {
 		}
 		res.Body.Close()
 	})
+}
+
+func TestMCPWithoutConsent(t *testing.T) {
+	h := newHarness(t)
+	cookie := h.login("nocon-" + uuid.NewString()[:8] + "@example.com")
+	res := h.do(http.MethodPost, "/api/v1/me/tokens", cookie, map[string]any{"name": "claude"})
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("token status = %d code=%s", res.StatusCode, errCode(t, res))
+	}
+	var created struct {
+		Token string `json:"token"`
+	}
+	readJSON(t, res, &created)
+	res = h.doOrigin(http.MethodPost, "/mcp", nil, "", created.Token, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+	})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("mcp status = %d code=%s", res.StatusCode, errCode(t, res))
+	}
+	res.Body.Close()
+}
+
+func assertReplayableTools(t *testing.T, msgs []ai.ChatMessage) {
+	t.Helper()
+	pending := map[string]bool{}
+	for i, m := range msgs {
+		switch m.Role {
+		case "assistant":
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "" {
+					t.Fatalf("msg %d assistant tool_call missing id", i)
+				}
+				pending[tc.ID] = true
+			}
+		case "tool":
+			if m.ToolCallID == "" {
+				t.Fatalf("msg %d orphan tool role: empty tool_call_id", i)
+			}
+			if !pending[m.ToolCallID] {
+				t.Fatalf("msg %d orphan tool role %q without preceding assistant tool_calls", i, m.ToolCallID)
+			}
+			delete(pending, m.ToolCallID)
+		}
+	}
+	if len(pending) != 0 {
+		t.Fatalf("unmatched assistant tool_calls: %v", pending)
+	}
 }
 
 func TestToolNames(t *testing.T) {

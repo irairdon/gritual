@@ -109,7 +109,7 @@ func (a *API) handleChat(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
-	if err := a.insertMessage(ctx, convID, "user", req.Message, "", 0, 0); err != nil {
+	if err := a.insertMessage(ctx, convID, dbMsg{Role: "user", Content: req.Message}); err != nil {
 		slog.Error("chat user msg", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
@@ -141,8 +141,6 @@ func (a *API) handleChat(w http.ResponseWriter, r *http.Request) {
 		model = ai.DefaultModel
 	}
 	userHash := ai.HashUser(u.ID, a.cfg.SessionSecret)
-	var lastText string
-	var tokensIn, tokensOut int
 
 	for round := 0; round < ai.ChatMaxRounds; round++ {
 		res, err := a.ai.ChatStream(ctx, ai.ChatRequest{
@@ -162,24 +160,30 @@ func (a *API) handleChat(w http.ResponseWriter, r *http.Request) {
 			writeEvent("error", map[string]string{"code": "ai_unavailable", "message": "SpaceXAI error"})
 			return
 		}
-		tokensIn += res.TokensIn
-		tokensOut += res.TokensOut
-		lastText = res.Text
 		if len(res.ToolCalls) == 0 {
+			if res.Text != "" {
+				_ = a.insertMessage(ctx, convID, dbMsg{
+					Role: "assistant", Content: res.Text, TokensIn: res.TokensIn, TokensOut: res.TokensOut,
+				})
+			}
 			break
 		}
-		msgs = append(msgs, ai.ChatMessage{Role: "assistant", Content: res.Text, ToolCalls: res.ToolCalls})
+		asst := ai.ChatMessage{Role: "assistant", Content: res.Text, ToolCalls: res.ToolCalls}
+		msgs = append(msgs, asst)
+		_ = a.insertMessage(ctx, convID, dbMsg{
+			Role: "assistant", Content: res.Text, ToolCalls: res.ToolCalls,
+			TokensIn: res.TokensIn, TokensOut: res.TokensOut,
+		})
 		for _, tc := range res.ToolCalls {
 			writeEvent("tool_call", map[string]any{"id": tc.ID, "name": tc.Name, "args": jsonRaw(tc.Args)})
 			tr := a.tools.Call(ctx, u.ID, sourceChat, tc.Name, json.RawMessage(tc.Args))
 			payload, _ := json.Marshal(tr)
 			writeEvent("tool_result", toolResultEvent(tc.ID, tr))
-			_ = a.insertMessage(ctx, convID, "tool", string(payload), tc.Name, 0, 0)
+			_ = a.insertMessage(ctx, convID, dbMsg{
+				Role: "tool", Content: string(payload), ToolName: tc.Name, ToolCallID: tc.ID,
+			})
 			msgs = append(msgs, ai.ChatMessage{Role: "tool", Content: string(payload), ToolCallID: tc.ID, Name: tc.Name})
 		}
-	}
-	if lastText != "" {
-		_ = a.insertMessage(ctx, convID, "assistant", lastText, "", tokensIn, tokensOut)
 	}
 	writeEvent("done", map[string]string{"conversation_id": convID.String()})
 }
@@ -232,7 +236,8 @@ func (a *API) loadOrCreate(ctx context.Context, userID uuid.UUID, id *uuid.UUID)
 
 func (a *API) loadMessages(ctx context.Context, convID uuid.UUID) ([]ai.ChatMessage, error) {
 	rows, err := a.pool.Query(ctx, `
-		SELECT role, content, tool_name FROM ai_messages
+		SELECT role, content, tool_name, tool_call_id, tool_calls
+		FROM ai_messages
 		WHERE conversation_id = $1
 		ORDER BY created_at, id
 	`, convID)
@@ -243,8 +248,9 @@ func (a *API) loadMessages(ctx context.Context, convID uuid.UUID) ([]ai.ChatMess
 	var out []ai.ChatMessage
 	for rows.Next() {
 		var role string
-		var content, toolName *string
-		if err := rows.Scan(&role, &content, &toolName); err != nil {
+		var content, toolName, toolCallID *string
+		var rawCalls []byte
+		if err := rows.Scan(&role, &content, &toolName, &toolCallID, &rawCalls); err != nil {
 			return nil, err
 		}
 		m := ai.ChatMessage{Role: role}
@@ -254,27 +260,55 @@ func (a *API) loadMessages(ctx context.Context, convID uuid.UUID) ([]ai.ChatMess
 		if toolName != nil {
 			m.Name = *toolName
 		}
+		if toolCallID != nil {
+			m.ToolCallID = *toolCallID
+		}
+		if len(rawCalls) > 0 {
+			if err := json.Unmarshal(rawCalls, &m.ToolCalls); err != nil {
+				return nil, err
+			}
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
 }
 
-func (a *API) insertMessage(ctx context.Context, convID uuid.UUID, role, content, toolName string, tokensIn, tokensOut int) error {
-	var tool any
-	if toolName != "" {
-		tool = toolName
+type dbMsg struct {
+	Role       string
+	Content    string
+	ToolName   string
+	ToolCallID string
+	ToolCalls  []ai.ToolCall
+	TokensIn   int
+	TokensOut  int
+}
+
+func (a *API) insertMessage(ctx context.Context, convID uuid.UUID, m dbMsg) error {
+	var tool, callID, calls any
+	if m.ToolName != "" {
+		tool = m.ToolName
+	}
+	if m.ToolCallID != "" {
+		callID = m.ToolCallID
+	}
+	if len(m.ToolCalls) > 0 {
+		b, err := json.Marshal(m.ToolCalls)
+		if err != nil {
+			return err
+		}
+		calls = b
 	}
 	var tin, tout any
-	if tokensIn > 0 {
-		tin = tokensIn
+	if m.TokensIn > 0 {
+		tin = m.TokensIn
 	}
-	if tokensOut > 0 {
-		tout = tokensOut
+	if m.TokensOut > 0 {
+		tout = m.TokensOut
 	}
 	_, err := a.pool.Exec(ctx, `
-		INSERT INTO ai_messages (conversation_id, role, content, tool_name, tokens_in, tokens_out)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, convID, role, content, tool, tin, tout)
+		INSERT INTO ai_messages (conversation_id, role, content, tool_name, tool_call_id, tool_calls, tokens_in, tokens_out)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, convID, m.Role, m.Content, tool, callID, calls, tin, tout)
 	return err
 }
 
@@ -323,7 +357,7 @@ func (a *API) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.pool.Query(r.Context(), `
-		SELECT id, role, content, tool_name, created_at
+		SELECT id, role, content, tool_name, tool_call_id, tool_calls, created_at
 		FROM ai_messages WHERE conversation_id = $1
 		ORDER BY created_at, id
 	`, id)
@@ -333,18 +367,24 @@ func (a *API) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type msg struct {
-		ID        uuid.UUID `json:"id"`
-		Role      string    `json:"role"`
-		Content   *string   `json:"content"`
-		ToolName  *string   `json:"tool_name"`
-		CreatedAt time.Time `json:"created_at"`
+		ID         uuid.UUID     `json:"id"`
+		Role       string        `json:"role"`
+		Content    *string       `json:"content"`
+		ToolName   *string       `json:"tool_name"`
+		ToolCallID *string       `json:"tool_call_id"`
+		ToolCalls  []ai.ToolCall `json:"tool_calls,omitempty"`
+		CreatedAt  time.Time     `json:"created_at"`
 	}
 	msgs := make([]msg, 0)
 	for rows.Next() {
 		var m msg
-		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.ToolName, &m.CreatedAt); err != nil {
+		var rawCalls []byte
+		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.ToolName, &m.ToolCallID, &rawCalls, &m.CreatedAt); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
 			return
+		}
+		if len(rawCalls) > 0 {
+			_ = json.Unmarshal(rawCalls, &m.ToolCalls)
 		}
 		msgs = append(msgs, m)
 	}

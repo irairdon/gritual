@@ -48,9 +48,9 @@ type ChatMessage struct {
 }
 
 type ToolCall struct {
-	ID   string
-	Name string
-	Args string
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Args string `json:"args"`
 }
 
 type StreamDelta struct {

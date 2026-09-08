@@ -63,10 +63,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusForbidden, "email_unverified", "email not verified")
 		return
 	}
-	if u.AIConsentAt == nil {
-		httpx.WriteError(w, http.StatusForbidden, "ai_consent_required", "AI consent required")
-		return
-	}
 	if h.limit.atLimit(tokenID.String()) {
 		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "too many MCP requests")
 		return
