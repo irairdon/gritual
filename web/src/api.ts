@@ -18,7 +18,7 @@ async function getBearer(): Promise<string | null> {
 
 function isPublicAuthPath(): boolean {
   const p = location.pathname;
-  return p === "/login" || p === "/register" || p === "/auth/magic" || p === "/privacy";
+  return p === "/login" || p === "/register" || p === "/auth/magic" || p === "/privacy" || p.startsWith("/join/");
 }
 
 export async function api(path: string, init: RequestInit = {}, isRetry = false): Promise<Response> {
@@ -96,4 +96,33 @@ export async function readError(res: Response): Promise<string> {
   } catch {
     return res.statusText;
   }
+}
+
+export type Circle = {
+  id: string;
+  name: string;
+  emoji: string | null;
+  tz: string;
+  role: "owner" | "admin" | "member";
+  member_count: number;
+};
+
+export type CircleMember = {
+  user_id: string;
+  display_name: string;
+  role: "owner" | "admin" | "member";
+  joined_at: string;
+};
+
+export type Invite = {
+  id: string;
+  token: string;
+  url: string;
+  expires_at: string;
+  max_uses: number | null;
+};
+
+export function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/";
+  return raw;
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/irairdon/gritual/internal/auth"
+	"github.com/irairdon/gritual/internal/circles"
 	"github.com/irairdon/gritual/internal/config"
 	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/httpx"
@@ -75,9 +76,11 @@ func main() {
 	if pool != nil {
 		ready = pool
 		authAPI := auth.New(cfg, pool)
+		circAPI := circles.New(cfg, pool)
 		mediaAPI := media.New(cfg, pool, authAPI.RequestUserID)
 		mountAPI = func(r chi.Router) {
 			authAPI.Mount(r)
+			circAPI.Mount(r)
 			mediaAPI.Mount(r)
 		}
 		mediaGET = mediaAPI.HandleGet

@@ -1,11 +1,13 @@
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { api, readError, type LoginJSON } from "../api";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { api, readError, safeNext, type LoginJSON } from "../api";
 import { useAuth } from "../auth";
 
 export default function RegisterPage() {
   const { setUser } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -29,7 +31,7 @@ export default function RegisterPage() {
       }
       const body = (await res.json()) as LoginJSON;
       setUser(body.user);
-      navigate("/");
+      navigate(next);
     } finally {
       setBusy(false);
     }
