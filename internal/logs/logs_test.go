@@ -59,7 +59,7 @@ func newHarness(t *testing.T) *harness {
 			circAPI.Mount(r)
 			ritAPI.Mount(r)
 			logAPI.Mount(r)
-		}),
+		}, nil),
 	}
 }
 

@@ -64,6 +64,15 @@ type logOut struct {
 	Habit       *habitOut   `json:"habit,omitempty"`
 	Fishing     *fishingOut `json:"fishing,omitempty"`
 	Custom      *customOut  `json:"custom,omitempty"`
+	Meal        *mealLogOut `json:"meal,omitempty"`
+}
+
+type mealLogOut struct {
+	Status   string  `json:"status"`
+	Kcal     float64 `json:"kcal"`
+	ProteinG float64 `json:"protein_g"`
+	CarbsG   float64 `json:"carbs_g"`
+	FatG     float64 `json:"fat_g"`
 }
 
 type weightOut struct {

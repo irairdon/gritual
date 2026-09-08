@@ -14,6 +14,8 @@ dev:
 	  DATABASE_URL=postgres://gritual:gritual@127.0.0.1:5432/gritual?sslmode=disable \
 	  APP_BASE_URL=http://localhost:8080 \
 	  VITE_DEV_ORIGIN=http://localhost:5173 \
+	  XAI_API_KEY="$${XAI_API_KEY}" \
+	  XAI_VISION_MODEL="$${XAI_VISION_MODEL:-grok-4.5}" \
 	  go run ./cmd/server & \
 	  cd web && { [ -d node_modules ] || npm ci; } && npm run dev'
 

@@ -80,6 +80,7 @@ export type User = {
   height_cm?: number | null;
   avatar_media_id?: string | null;
   is_admin?: boolean;
+  ai_consent_at?: string | null;
 };
 
 export type LoginJSON = {
@@ -186,6 +187,33 @@ export type LogItem = {
     catches: { species: string | null; count: number }[];
   };
   custom?: { value: number; unit: string };
+  meal?: { status: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number };
+};
+
+export type MealItem = {
+  id: string;
+  name: string;
+  grams: number | null;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  source: string;
+};
+
+export type Meal = {
+  id: string;
+  status: "draft" | "confirmed";
+  logged_at: string;
+  visibility: string;
+  notes: string | null;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  confidence: number | null;
+  photo_media_id: string | null;
+  items: MealItem[];
 };
 
 export function safeNext(raw: string | null): string {

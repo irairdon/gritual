@@ -52,7 +52,7 @@ func newHarness(t *testing.T) *harness {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
 			ritAPI.Mount(r)
-		}),
+		}, nil),
 	}
 }
 

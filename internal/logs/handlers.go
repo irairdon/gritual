@@ -373,7 +373,7 @@ func (a *API) hydrate(ctx context.Context, items []logOut) error {
 		return nil
 	}
 	idx := make(map[uuid.UUID]int, len(items))
-	var weightIDs, workoutIDs, habitIDs, fishingIDs, customIDs []uuid.UUID
+	var weightIDs, workoutIDs, habitIDs, fishingIDs, customIDs, mealIDs []uuid.UUID
 	for i := range items {
 		idx[items[i].ID] = i
 		switch items[i].Type {
@@ -387,6 +387,8 @@ func (a *API) hydrate(ctx context.Context, items []logOut) error {
 			fishingIDs = append(fishingIDs, items[i].ID)
 		case "custom":
 			customIDs = append(customIDs, items[i].ID)
+		case "meal":
+			mealIDs = append(mealIDs, items[i].ID)
 		}
 	}
 	if err := a.hydrateWeights(ctx, items, idx, weightIDs); err != nil {
@@ -401,7 +403,30 @@ func (a *API) hydrate(ctx context.Context, items []logOut) error {
 	if err := a.hydrateFishing(ctx, items, idx, fishingIDs); err != nil {
 		return err
 	}
-	return a.hydrateCustoms(ctx, items, idx, customIDs)
+	if err := a.hydrateCustoms(ctx, items, idx, customIDs); err != nil {
+		return err
+	}
+	return a.hydrateMeals(ctx, items, idx, mealIDs)
+}
+
+func (a *API) hydrateMeals(ctx context.Context, items []logOut, idx map[uuid.UUID]int, ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := a.pool.Query(ctx, `SELECT log_id, status, kcal, protein_g, carbs_g, fat_g FROM meals WHERE log_id = ANY($1)`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var m mealLogOut
+		if err := rows.Scan(&id, &m.Status, &m.Kcal, &m.ProteinG, &m.CarbsG, &m.FatG); err != nil {
+			return err
+		}
+		items[idx[id]].Meal = &m
+	}
+	return rows.Err()
 }
 
 func (a *API) hydrateWeights(ctx context.Context, items []logOut, idx map[uuid.UUID]int, ids []uuid.UUID) error {

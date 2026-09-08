@@ -48,8 +48,8 @@ func TestTranscodePNG(t *testing.T) {
 }
 
 func TestTranscodeRejectsNonImage(t *testing.T) {
-	if _, err := transcode(bytes.NewReader([]byte("not an image"))); err != errInvalid {
-		t.Fatalf("err = %v, want errInvalid", err)
+	if _, err := transcode(bytes.NewReader([]byte("not an image"))); err != ErrInvalid {
+		t.Fatalf("err = %v, want ErrInvalid", err)
 	}
 }
 
@@ -59,8 +59,8 @@ func TestTranscodeRejectsGIF(t *testing.T) {
 	if err := gif.Encode(&buf, img, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := transcode(&buf); err != errInvalid {
-		t.Fatalf("err = %v, want errInvalid", err)
+	if _, err := transcode(&buf); err != ErrInvalid {
+		t.Fatalf("err = %v, want ErrInvalid", err)
 	}
 }
 
