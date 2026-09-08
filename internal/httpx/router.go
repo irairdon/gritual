@@ -17,6 +17,10 @@ import (
 	"github.com/google/uuid"
 )
 
+func init() {
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
+
 type ctxKey int
 
 const requestIDKey ctxKey = 1
@@ -168,16 +172,21 @@ func handleMedia(w http.ResponseWriter, _ *http.Request) {
 	http.NotFound(w, nil)
 }
 
+// Team ID / Play signing fingerprints land with the v1.1 store bundle (app.gritual.mobile).
+const aasaJSON = `{"applinks":{"apps":[],"details":[{"appID":"app.gritual.mobile","paths":["*"]}]}}`
+
+const assetLinksJSON = `[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.gritual.mobile","sha256_cert_fingerprints":[]}}]`
+
 func handleAASA(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "{}")
+	_, _ = io.WriteString(w, aasaJSON)
 }
 
 func handleAssetLinks(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "[]")
+	_, _ = io.WriteString(w, assetLinksJSON)
 }
 
 func serveUI(ui fs.FS) http.HandlerFunc {
@@ -206,6 +215,9 @@ func serveUI(ui fs.FS) http.HandlerFunc {
 				}
 				if strings.HasPrefix(clean, "/assets/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else if clean == "/sw.js" {
+					// SW must revalidate so a new shell/assets precache can install.
+					w.Header().Set("Cache-Control", "no-cache")
 				}
 				writeFSFile(w, rel, f)
 				return
