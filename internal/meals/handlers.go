@@ -31,10 +31,18 @@ type itemIn struct {
 
 type confirmReq struct {
 	ID       *uuid.UUID `json:"id"`
+	DraftID  *uuid.UUID `json:"draft_id"`
 	Items    []itemIn   `json:"items"`
 	Notes    *string    `json:"notes"`
 	LoggedAt *time.Time `json:"logged_at"`
 	RitualID *uuid.UUID `json:"ritual_id"`
+}
+
+func (r confirmReq) draftLogID() *uuid.UUID {
+	if r.DraftID != nil {
+		return r.DraftID
+	}
+	return r.ID
 }
 
 func (a *API) handlePhoto(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +59,7 @@ func (a *API) handlePhoto(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusServiceUnavailable, "ai_unavailable", "SpaceXAI unavailable")
 		return
 	}
-	if a.limit.over(u.ID.String()) {
+	if a.limit.atLimit(u.ID.String()) {
 		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "too many vision requests")
 		return
 	}
@@ -84,11 +92,14 @@ func (a *API) handlePhoto(w http.ResponseWriter, r *http.Request) {
 
 	est, err := a.estimate(ctx, u.ID, stored.SHA256, stored.JPEG)
 	if err != nil {
+		if errors.Is(err, errRateLimited) {
+			httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "too many vision requests")
+			return
+		}
 		slog.Error("meal vision", "err", err)
 		httpx.WriteError(w, http.StatusServiceUnavailable, "ai_unavailable", "SpaceXAI error")
 		return
 	}
-	a.limit.hit(u.ID.String())
 
 	out, err := a.insertDraft(ctx, u.ID, stored.ID, est)
 	if err != nil {
@@ -115,6 +126,10 @@ func (a *API) estimate(ctx context.Context, userID uuid.UUID, sha []byte, jpeg [
 	model := a.cfg.XAIVisionModel
 	if model == "" {
 		model = ai.DefaultModel
+	}
+	// Count in-flight and failed xAI calls, not only successes.
+	if !a.limit.allow(userID.String()) {
+		return ai.Estimate{}, errRateLimited
 	}
 	raw, err = a.vision.CompleteJSON(ctx, ai.MealVisionRequest(ai.HashUser(userID, a.cfg.SessionSecret), model, jpeg))
 	if err != nil {
@@ -217,8 +232,8 @@ func (a *API) handleConfirm(w http.ResponseWriter, r *http.Request) {
 		notes = &n
 	}
 
-	if req.ID != nil {
-		out, err := a.updateMeal(r.Context(), u.ID, *req.ID, items, kcal, protein, carbs, fat, notes, req.LoggedAt, req.RitualID)
+	if id := req.draftLogID(); id != nil {
+		out, err := a.updateMeal(r.Context(), u.ID, *id, items, kcal, protein, carbs, fat, notes, req.LoggedAt, req.RitualID)
 		if err != nil {
 			writeMealErr(w, err)
 			return
@@ -507,7 +522,10 @@ func checkMealRitual(ctx context.Context, tx pgx.Tx, userID, ritualID uuid.UUID)
 	return nil
 }
 
-var errNotFound = errors.New("not found")
+var (
+	errNotFound    = errors.New("not found")
+	errRateLimited = errors.New("rate limited")
+)
 
 type apiError struct {
 	status int

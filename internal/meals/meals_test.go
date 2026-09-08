@@ -288,7 +288,7 @@ func TestMealsVision(t *testing.T) {
 		}
 
 		res = h.do(http.MethodPost, "/api/v1/meals", cookie, map[string]any{
-			"id": draft.ID.String(),
+			"draft_id": draft.ID.String(),
 			"items": []map[string]any{
 				{"name": "Chicken thigh", "grams": 180, "kcal": 250, "protein_g": 32, "carbs_g": 0, "fat_g": 13},
 			},
@@ -358,6 +358,29 @@ func TestMealsVision(t *testing.T) {
 		}
 		if got := errCode(t, res); got != "invalid" {
 			t.Fatalf("code = %q", got)
+		}
+	})
+
+	t.Run("id alias still confirms draft", func(t *testing.T) {
+		res := h.photo(cookie, tinyJPEG())
+		if res.StatusCode != http.StatusCreated {
+			t.Fatalf("photo status = %d", res.StatusCode)
+		}
+		var draft mealOut
+		readJSON(t, res, &draft)
+		res = h.do(http.MethodPost, "/api/v1/meals", cookie, map[string]any{
+			"id": draft.ID.String(),
+			"items": []map[string]any{
+				{"name": "Chicken thigh", "grams": 180, "kcal": 250, "protein_g": 32, "carbs_g": 0, "fat_g": 13},
+			},
+		})
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("confirm status = %d code=%s", res.StatusCode, errCode(t, res))
+		}
+		var confirmed mealOut
+		readJSON(t, res, &confirmed)
+		if confirmed.ID != draft.ID || confirmed.Status != "confirmed" {
+			t.Fatalf("confirmed = %+v draft=%s", confirmed, draft.ID)
 		}
 	})
 
@@ -450,4 +473,42 @@ func TestMealsUnavailableAndUnverified(t *testing.T) {
 			t.Fatalf("code = %q", got)
 		}
 	})
+}
+
+func TestLimiterAllow(t *testing.T) {
+	l := newLimiter()
+	const id = "user"
+	for i := 0; i < 20; i++ {
+		if !l.allow(id) {
+			t.Fatalf("allow %d = false", i)
+		}
+	}
+	if l.allow(id) {
+		t.Fatal("21st allow succeeded")
+	}
+	if !l.atLimit(id) {
+		t.Fatal("expected atLimit after 20 hits")
+	}
+}
+
+func TestVisionFailedCallsCount(t *testing.T) {
+	h := newHarness(t)
+	cookie := h.login("rl-" + uuid.NewString()[:8] + "@example.com")
+	res := h.do(http.MethodPost, "/api/v1/me/ai-consent", cookie, map[string]any{})
+	res.Body.Close()
+	h.stub.Err = ai.ErrUnavailable
+	for i := 0; i < 20; i++ {
+		res = h.photo(cookie, tinyJPEG())
+		if res.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("fail %d status = %d", i, res.StatusCode)
+		}
+		res.Body.Close()
+	}
+	res = h.photo(cookie, tinyJPEG())
+	if res.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", res.StatusCode)
+	}
+	if got := errCode(t, res); got != "rate_limited" {
+		t.Fatalf("code = %q", got)
+	}
 }

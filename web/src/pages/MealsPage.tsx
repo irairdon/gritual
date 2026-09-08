@@ -111,7 +111,7 @@ export default function MealsPage() {
       const res = await api("/api/v1/meals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: draft.id, items, notes }),
+        body: JSON.stringify({ draft_id: draft.id, items, notes }),
       });
       if (!res.ok) {
         setError(await readError(res));

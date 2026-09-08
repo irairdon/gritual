@@ -82,10 +82,7 @@ func newLimiter() *limiter {
 	return &limiter{hits: make(map[string][]time.Time)}
 }
 
-func (l *limiter) over(userID string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
+func (l *limiter) pruneLocked(userID string, now time.Time) []time.Time {
 	cutoff := now.Add(-time.Hour)
 	cur := l.hits[userID][:0]
 	for _, t := range l.hits[userID] {
@@ -95,14 +92,26 @@ func (l *limiter) over(userID string) bool {
 	}
 	if len(cur) == 0 {
 		delete(l.hits, userID)
-		return false
+		return nil
 	}
 	l.hits[userID] = cur
-	return len(cur) >= 20
+	return cur
 }
 
-func (l *limiter) hit(userID string) {
+func (l *limiter) atLimit(userID string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.hits[userID] = append(l.hits[userID], time.Now())
+	return len(l.pruneLocked(userID, time.Now())) >= 20
+}
+
+func (l *limiter) allow(userID string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	cur := l.pruneLocked(userID, now)
+	if len(cur) >= 20 {
+		return false
+	}
+	l.hits[userID] = append(cur, now)
+	return true
 }
