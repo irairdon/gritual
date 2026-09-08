@@ -1,0 +1,6 @@
+# credentials-file / tunnel id come from `cloudflared tunnel create gritual`
+# Cloudflare Access is OFF for this hostname.
+ingress:
+  - hostname: gritual.fit
+    service: http://app:8080
+  - service: http_status:404

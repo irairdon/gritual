@@ -59,7 +59,7 @@ Compose + one binary + PWA. Loop: **circle → ritual → log → challenge → 
 - Embedded SPA + PWA (shell-only offline).
 - MCP **PAT-only** at `https://gritual.fit/mcp` (Claude, Cursor, curl). ChatGPT Developer Mode still wants OAuth → **v2**. Public HTTPS unblocks that later; do not pull the AS into v1.
 - `DELETE /api/v1/me`. `ADMIN_EMAIL` bootstrap. `audit_log` writes.
-- SMTP for magic-link + email-verify only (not invites). Prod host: Linux + compose + Cloudflare Tunnel. Homestead/k3s is optional later, not v1 prod.
+- SMTP for magic-link + email-verify only (not invites). Prod host: house Linux + compose + Cloudflare Tunnel.
 
 ### v1.1 — native wrapper
 
@@ -117,7 +117,7 @@ Compose + one binary + PWA. Loop: **circle → ritual → log → challenge → 
 | Scoring default (workout) | Volume (`sets×reps×kg`), not e1RM | Simple, testable |
 | Challenge health logs | Join-time grant auto-tags matching logs `visibility=challenge` | Otherwise private defaults score nothing |
 | Public hostname | **`https://gritual.fit`** | Domain purchased; `APP_BASE_URL` in prod |
-| Production host | Linux box + docker compose + **Cloudflare Tunnel** (`cloudflared`) | TLS/DNS at Cloudflare; no inbound 80/443 on the machine |
+| Production host | House Linux box + docker compose + **Cloudflare Tunnel** (`cloudflared`) | TLS/DNS at Cloudflare; no inbound 80/443 on the machine |
 | SMTP | Magic-link + post-register verify only | Not invites, not marketing. Stdout fallback when unset |
 | Media | Local disk, content-addressed, EXIF stripped | Host bind-mount in prod (`/var/lib/gritual/media`) |
 | Runtime image | **alpine:3.21** + `ca-certificates` + `tzdata` (not distroless) | Host volume writes + `exec` debug; TLS to xAI/SMTP; IANA zones |
@@ -125,7 +125,6 @@ Compose + one binary + PWA. Loop: **circle → ritual → log → challenge → 
 | Weight challenges | `challenges.direction` `at_most` \| `at_least` (required for `weight.progress`; reject `hit`) | Loss vs gain cannot live only on an optional ritual |
 | Challenge join | **`opt_in` only**; never silent participant INSERT | Join POST + on-screen grant is the only enrollment path |
 | Metrics | Separate bind `METRICS_ADDR` default `127.0.0.1:9090` | Do not put `/metrics` on public ingress |
-| Homestead k3s | Optional later, **not** v1 prod | v1 is compose + tunnel on a Linux box |
 | Module path | `github.com/irairdon/gritual` | Git remote `irairdon/gritual` via `github.com-irairdon` |
 | HIPAA | Not a covered entity; treat data as sensitive | Consumer wellness, no treatment/billing |
 
@@ -233,8 +232,7 @@ gritual/
     src/native/             # no-ops in v1; Capacitor guards in v1.1
   mobile/                   # v1.1 Capacitor 8.5+; webDir ../internal/webui/dist
   deploy/
-    cloudflared/            # v1 prod: tunnel hostname → app:8080
-    homestead/              # optional later if the box becomes a cluster; not v1 prod
+    cloudflared/            # v1 prod: house Linux + compose; tunnel hostname → app:8080
   .env.example
 ```
 
@@ -351,7 +349,7 @@ PWA Web Share Target (v2) is a **POST** to a registered route (e.g. `/share-targ
 
 ### Docker + `make web` (identical copy path)
 
-Runtime: **`alpine:3.21`**, nonroot uid **65532** (same uid distroless would use, so a later switch is easy). Prod media volume is a **host directory** (`/var/lib/gritual/media`); chown `65532:65532` on the Linux box so the container can write. (If the host later becomes a k3s cluster, Longhorn `fsGroup: 65532` is the equivalent — not v1.)
+Runtime: **`alpine:3.21`**, nonroot uid **65532** (same uid distroless would use, so a later switch is easy). Prod media volume is a **host directory** (`/var/lib/gritual/media`); chown `65532:65532` on the Linux box so the container can write.
 
 `cmd/server/main.go` **must** `import _ "time/tzdata"` so `time.LoadLocation("America/Denver")` works even if the image is missing `tzdata` (LaneLedger pattern). The image still installs `tzdata` + `ca-certificates`: `CGO_ENABLED=0` Go uses the **OS** CA bundle for xAI/SMTP TLS. Compose builds this same Dockerfile (`make up`); do not use a CA-less alpine for the app service.
 
@@ -1438,7 +1436,7 @@ ingress:
 
 Compose on the box (abridged): `app` and `postgres` with `restart: unless-stopped`; bind-mount **`/var/lib/gritual/media`** → `MEDIA_DIR` and **`/var/lib/gritual/pg`** → Postgres data; optional `cloudflared` service with that config mounted read-only. Chown media to uid 65532.
 
-**Homestead k3s / Traefik / Longhorn:** optional **later** if this box becomes a cluster. Not v1 production. Do not imply Traefik-on-Homestead is how `gritual.fit` is served.
+This house Linux + compose + Cloudflare Tunnel path is the only production story.
 
 ### Env vars
 
@@ -1485,7 +1483,7 @@ Compose on the box (abridged): `app` and `postgres` with `restart: unless-stoppe
 8. **First-user admin vs ADMIN_EMAIL** — `ADMIN_EMAIL`.
 9. **Distroless vs alpine** — **alpine:3.21** default for host-volume writes + debug, with `ca-certificates` + `tzdata` and embedded `time/tzdata`.
 10. **Bundled webDir vs remote origin for Capacitor** — remote `https://gritual.fit` so cookies work; bearer still in Keychain for extensions.
-11. **Homestead k3s vs Linux + Cloudflare Tunnel** — Tunnel is v1 prod (user decision). Homestead YAML may exist later; it is not how `gritual.fit` is served.
+11. **Inbound 80/443 vs Cloudflare Tunnel** — Tunnel is production (user decision): TLS/DNS at Cloudflare, no inbound ports on the house Linux box.
 
 ---
 
@@ -1526,7 +1524,7 @@ Compose on the box (abridged): `app` and `postgres` with `restart: unless-stoppe
 **Resolved (user, 2026-09-08):**
 
 1. Public hostname: **`https://gritual.fit`**.
-2. Hosting: Linux machine + docker compose + **Cloudflare Tunnel**. Homestead k3s is not v1 prod.
+2. Hosting: house Linux machine + docker compose + **Cloudflare Tunnel**.
 3. SMTP: production path for magic-link + email-verify only; stdout fallback when unset; not for invites.
 
 Previously decided: brand Gritual; 18+; fishing first-class; HealthKit v2; `ADMIN_EMAIL`; OAuth AS v2; Capacitor v1.1; PAT MCP v1.
@@ -1551,7 +1549,7 @@ Flags: `AI_ENABLED`, `MCP_ENABLED` (env table). Rollback = previous image. Forwa
 
 - LaneLedger work style: `/Users/isaiah/bowling/CLAUDE.md`, `/Users/isaiah/bowling/SPEC.md` (first-user admin **rejected** here)
 - avro-pay: Vite lives in `web/`; migrations `//go:embed` transactional. **SPA embed-in-Go is not how avro-pay ships** (nginx).
-- Cloudflare Tunnel (`cloudflared`) as v1 edge — not Homestead Traefik
+- Cloudflare Tunnel (`cloudflared`) as production edge
 - xAI docs listed above; Chat Completions chosen over Responses for v1
 - MCP Streamable HTTP; Go SDK
 - Capacitor **8.5+** (iOS 27 UIScene)
@@ -1594,8 +1592,7 @@ internal/   # auth, circles, rituals, logs, meals, ai, mcp, scoring, webui, jobs
 web/        # Vite SPA
 internal/webui
 mobile/     # v1.1 Capacitor; webDir ../internal/webui/dist
-deploy/cloudflared/   # v1 prod: gritual.fit → app:8080
-deploy/homestead/     # optional later; not v1 prod
+deploy/cloudflared/   # v1 prod: house Linux + compose; gritual.fit → app:8080
 
 ## Dev
 - `make dev` — Vite :5173 proxies `/api`, `/media`, `/healthz`, `/readyz`, `/mcp` to Go :8080 + compose Postgres. Do not proxy `/metrics`.

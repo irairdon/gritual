@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gritual
+      POSTGRES_PASSWORD: gritual
+      POSTGRES_DB: gritual
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gritual -d gritual"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      APP_BASE_URL: http://localhost:8080
+      MEDIA_DIR: /data/media
+      DATABASE_URL: postgres://gritual:gritual@postgres:5432/gritual?sslmode=disable
+      HTTP_ADDR: ":8080"
+    volumes:
+      - media:/data/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional production sidecar (house Linux + Cloudflare Tunnel).
+  # Create: cloudflared tunnel create gritual
+  # Cloudflare Access is OFF for gritual.fit.
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   command: tunnel --config /etc/cloudflared/config.yml run
+  #   volumes:
+  #     - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+  #   depends_on:
+  #     - app
+  #   restart: unless-stopped
+
+volumes:
+  pgdata:
+  media:
