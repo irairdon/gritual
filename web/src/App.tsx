@@ -7,6 +7,7 @@ import HomePage from "./pages/HomePage";
 import JoinPage from "./pages/JoinPage";
 import LoginPage from "./pages/LoginPage";
 import LogsPage from "./pages/LogsPage";
+import MealsPage from "./pages/MealsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import RegisterPage from "./pages/RegisterPage";
 import RitualsPage from "./pages/RitualsPage";
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/challenges/:id" element={<ChallengePage />} />
         <Route path="/rituals" element={<RitualsPage />} />
         <Route path="/logs" element={<LogsPage />} />
+        <Route path="/meals" element={<MealsPage />} />
         <Route path="/join/:token" element={<JoinPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

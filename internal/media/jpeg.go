@@ -10,25 +10,25 @@ import (
 )
 
 const (
-	maxUpload     = 4 << 20
+	MaxUpload     = 8 << 20
 	maxLongEdge   = 1280
 	jpegQuality   = 70
 	maxDecodeEdge = 8192
 )
 
-var errInvalid = errors.New("invalid image")
+var ErrInvalid = errors.New("invalid image")
 
 func transcode(r io.Reader) ([]byte, error) {
-	img, format, err := image.Decode(io.LimitReader(r, maxUpload+1))
+	img, format, err := image.Decode(io.LimitReader(r, MaxUpload+1))
 	if err != nil {
-		return nil, errInvalid
+		return nil, ErrInvalid
 	}
 	if format != "jpeg" && format != "png" {
-		return nil, errInvalid
+		return nil, ErrInvalid
 	}
 	b := img.Bounds()
 	if b.Dx() > maxDecodeEdge || b.Dy() > maxDecodeEdge || b.Dx() < 1 || b.Dy() < 1 {
-		return nil, errInvalid
+		return nil, ErrInvalid
 	}
 	img = fitLongEdge(img, maxLongEdge)
 	var buf bytes.Buffer

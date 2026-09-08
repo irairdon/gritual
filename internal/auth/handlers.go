@@ -437,6 +437,28 @@ func (a *API) handleGetMe(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, fresh.me())
 }
 
+func (a *API) handleAIConsent(w http.ResponseWriter, r *http.Request) {
+	u := UserFrom(r.Context())
+	var at time.Time
+	err := a.pool.QueryRow(r.Context(), `
+		UPDATE users SET ai_consent_at = COALESCE(ai_consent_at, now()), updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING ai_consent_at
+	`, u.ID).Scan(&at)
+	if err != nil {
+		slog.Error("ai-consent", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	a.audit(r.Context(), &u.ID, "ai_consent", httpx.RealIP(r), map[string]any{})
+	fresh, err := loadUserByID(r.Context(), a.pool, u.ID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, fresh.me())
+}
+
 func (a *API) handlePatchMe(w http.ResponseWriter, r *http.Request) {
 	var req patchMeReq
 	if err := httpx.ReadJSON(w, r, &req); err != nil {

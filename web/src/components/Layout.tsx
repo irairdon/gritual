@@ -26,6 +26,9 @@ export default function Layout() {
                 <Link to="/logs" className="text-stone-600 hover:text-stone-900">
                   Logs
                 </Link>
+                <Link to="/meals" className="text-stone-600 hover:text-stone-900">
+                  Meals
+                </Link>
                 <Link to="/settings" className="text-stone-600 hover:text-stone-900">
                   Settings
                 </Link>

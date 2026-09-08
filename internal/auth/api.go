@@ -66,6 +66,7 @@ func (a *API) Mount(r chi.Router) {
 
 	r.Get("/me", a.require(a.handleGetMe))
 	r.Patch("/me", a.require(a.handlePatchMe))
+	r.Post("/me/ai-consent", a.require(a.handleAIConsent))
 	r.Delete("/me", a.require(a.handleDeleteMe))
 	r.Get("/admin/audit", a.require(a.requireAdmin(a.handleAdminAudit)))
 }
@@ -83,6 +84,7 @@ type User struct {
 	Bio           *string
 	HeightCM      *float64
 	AvatarMediaID *uuid.UUID
+	AIConsentAt   *time.Time
 }
 
 type loginUser struct {
@@ -100,18 +102,19 @@ type loginResponse struct {
 }
 
 type meResponse struct {
-	ID            string   `json:"id"`
-	Email         string   `json:"email"`
-	DisplayName   string   `json:"display_name"`
-	EmailVerified bool     `json:"email_verified"`
-	Units         string   `json:"units"`
-	TZ            string   `json:"tz"`
-	CalorieGoal   *int     `json:"calorie_goal"`
-	ProteinGoalG  *int     `json:"protein_goal_g"`
-	Bio           *string  `json:"bio"`
-	HeightCM      *float64 `json:"height_cm"`
-	AvatarMediaID *string  `json:"avatar_media_id"`
-	IsAdmin       bool     `json:"is_admin"`
+	ID            string     `json:"id"`
+	Email         string     `json:"email"`
+	DisplayName   string     `json:"display_name"`
+	EmailVerified bool       `json:"email_verified"`
+	Units         string     `json:"units"`
+	TZ            string     `json:"tz"`
+	CalorieGoal   *int       `json:"calorie_goal"`
+	ProteinGoalG  *int       `json:"protein_goal_g"`
+	Bio           *string    `json:"bio"`
+	HeightCM      *float64   `json:"height_cm"`
+	AvatarMediaID *string    `json:"avatar_media_id"`
+	IsAdmin       bool       `json:"is_admin"`
+	AIConsentAt   *time.Time `json:"ai_consent_at"`
 }
 
 func UserFrom(ctx context.Context) *User {
@@ -183,7 +186,7 @@ func (a *API) userFromToken(ctx context.Context, raw, kind string) (*User, error
 	var verifiedAt *time.Time
 	err := a.pool.QueryRow(ctx, `
 		SELECT u.id, u.email::text, u.display_name, u.email_verified_at, u.is_admin,
-		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio
+		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio, u.ai_consent_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		LEFT JOIN profiles p ON p.user_id = u.id
@@ -193,7 +196,7 @@ func (a *API) userFromToken(ctx context.Context, raw, kind string) (*User, error
 		  AND u.deleted_at IS NULL
 	`, hashToken(a.cfg.SessionSecret, raw), kind).Scan(
 		&u.ID, &u.Email, &u.DisplayName, &verifiedAt, &u.IsAdmin,
-		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio,
+		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio, &u.AIConsentAt,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -306,6 +309,7 @@ func (u *User) me() meResponse {
 		HeightCM:      u.HeightCM,
 		AvatarMediaID: avatar,
 		IsAdmin:       u.IsAdmin,
+		AIConsentAt:   u.AIConsentAt,
 	}
 }
 
@@ -341,13 +345,13 @@ func loadUserByID(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*User,
 	var verifiedAt *time.Time
 	err := pool.QueryRow(ctx, `
 		SELECT u.id, u.email::text, u.display_name, u.email_verified_at, u.is_admin,
-		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio, p.height_cm, p.avatar_media_id
+		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio, p.height_cm, p.avatar_media_id, u.ai_consent_at
 		FROM users u
 		LEFT JOIN profiles p ON p.user_id = u.id
 		WHERE u.id = $1 AND u.deleted_at IS NULL
 	`, id).Scan(
 		&u.ID, &u.Email, &u.DisplayName, &verifiedAt, &u.IsAdmin,
-		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio, &u.HeightCM, &u.AvatarMediaID,
+		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio, &u.HeightCM, &u.AvatarMediaID, &u.AIConsentAt,
 	)
 	if err != nil {
 		return nil, err
@@ -361,13 +365,13 @@ func loadUserByEmail(ctx context.Context, pool *pgxpool.Pool, email string) (*Us
 	var verifiedAt *time.Time
 	err := pool.QueryRow(ctx, `
 		SELECT u.id, u.email::text, u.display_name, u.email_verified_at, u.is_admin,
-		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio, p.height_cm, p.avatar_media_id
+		       u.units, u.tz, u.calorie_goal, u.protein_goal_g, p.bio, p.height_cm, p.avatar_media_id, u.ai_consent_at
 		FROM users u
 		LEFT JOIN profiles p ON p.user_id = u.id
 		WHERE u.email = $1 AND u.deleted_at IS NULL
 	`, email).Scan(
 		&u.ID, &u.Email, &u.DisplayName, &verifiedAt, &u.IsAdmin,
-		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio, &u.HeightCM, &u.AvatarMediaID,
+		&u.Units, &u.TZ, &u.CalorieGoal, &u.ProteinGoalG, &u.Bio, &u.HeightCM, &u.AvatarMediaID, &u.AIConsentAt,
 	)
 	if err != nil {
 		return nil, err

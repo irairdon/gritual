@@ -35,6 +35,10 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-Gritual <noreply@gritual.fit>}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_MODEL: ${XAI_MODEL:-grok-4.5}
+      XAI_VISION_MODEL: ${XAI_VISION_MODEL:-grok-4.5}
+      AI_ENABLED: ${AI_ENABLED:-}
     volumes:
       - media:/data/media
     depends_on:

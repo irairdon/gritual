@@ -10,38 +10,45 @@ import (
 )
 
 type Config struct {
-	HTTPAddr      string
-	MetricsAddr   string
-	DatabaseURL   string
-	AppBaseURL    string
-	SessionSecret []byte
-	AdminEmail    string
-	AuthDevLogin  bool
-	ViteDevOrigin string
-	SMTPHost      string
-	SMTPPort      string
-	SMTPUser      string
-	SMTPPass      string
-	SMTPFrom      string
-	MediaDir      string
-	CookieSecure  bool
+	HTTPAddr       string
+	MetricsAddr    string
+	DatabaseURL    string
+	AppBaseURL     string
+	SessionSecret  []byte
+	AdminEmail     string
+	AuthDevLogin   bool
+	ViteDevOrigin  string
+	SMTPHost       string
+	SMTPPort       string
+	SMTPUser       string
+	SMTPPass       string
+	SMTPFrom       string
+	MediaDir       string
+	CookieSecure   bool
+	XAIAPIKey      string
+	XAIModel       string
+	XAIVisionModel string
+	AIEnabled      bool
 }
 
 func Load() (Config, error) {
 	c := Config{
-		HTTPAddr:      env("HTTP_ADDR", ":8080"),
-		MetricsAddr:   env("METRICS_ADDR", "127.0.0.1:9090"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		AppBaseURL:    strings.TrimRight(env("APP_BASE_URL", "http://localhost:8080"), "/"),
-		AdminEmail:    strings.TrimSpace(os.Getenv("ADMIN_EMAIL")),
-		AuthDevLogin:  truthy(os.Getenv("AUTH_DEV_LOGIN")),
-		ViteDevOrigin: strings.TrimRight(env("VITE_DEV_ORIGIN", "http://localhost:5173"), "/"),
-		SMTPHost:      os.Getenv("SMTP_HOST"),
-		SMTPPort:      env("SMTP_PORT", "587"),
-		SMTPUser:      os.Getenv("SMTP_USER"),
-		SMTPPass:      os.Getenv("SMTP_PASS"),
-		SMTPFrom:      env("SMTP_FROM", "Gritual <noreply@gritual.fit>"),
-		MediaDir:      env("MEDIA_DIR", "./data/media"),
+		HTTPAddr:       env("HTTP_ADDR", ":8080"),
+		MetricsAddr:    env("METRICS_ADDR", "127.0.0.1:9090"),
+		DatabaseURL:    os.Getenv("DATABASE_URL"),
+		AppBaseURL:     strings.TrimRight(env("APP_BASE_URL", "http://localhost:8080"), "/"),
+		AdminEmail:     strings.TrimSpace(os.Getenv("ADMIN_EMAIL")),
+		AuthDevLogin:   truthy(os.Getenv("AUTH_DEV_LOGIN")),
+		ViteDevOrigin:  strings.TrimRight(env("VITE_DEV_ORIGIN", "http://localhost:5173"), "/"),
+		SMTPHost:       os.Getenv("SMTP_HOST"),
+		SMTPPort:       env("SMTP_PORT", "587"),
+		SMTPUser:       os.Getenv("SMTP_USER"),
+		SMTPPass:       os.Getenv("SMTP_PASS"),
+		SMTPFrom:       env("SMTP_FROM", "Gritual <noreply@gritual.fit>"),
+		MediaDir:       env("MEDIA_DIR", "./data/media"),
+		XAIAPIKey:      os.Getenv("XAI_API_KEY"),
+		XAIModel:       env("XAI_MODEL", "grok-4.5"),
+		XAIVisionModel: env("XAI_VISION_MODEL", "grok-4.5"),
 	}
 
 	u, err := url.Parse(c.AppBaseURL)
@@ -69,6 +76,11 @@ func Load() (Config, error) {
 	}
 	if c.SMTPHost == "" {
 		slog.Warn("SMTP unset; magic links will print to stdout")
+	}
+	if v, ok := os.LookupEnv("AI_ENABLED"); ok && strings.TrimSpace(v) != "" {
+		c.AIEnabled = truthy(v)
+	} else {
+		c.AIEnabled = c.XAIAPIKey != ""
 	}
 	return c, nil
 }

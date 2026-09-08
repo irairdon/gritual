@@ -53,7 +53,7 @@ func newHarness(t *testing.T) *harness {
 		h: httpx.NewRouter(ui, pool, func(r chi.Router) {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
-		}),
+		}, nil),
 	}
 }
 

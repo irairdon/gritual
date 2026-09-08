@@ -134,6 +134,7 @@ export default function LogsPage() {
     if (log.habit) return log.habit.status;
     if (log.fishing) return log.fishing.water_body || "trip";
     if (log.custom) return `${log.custom.value} ${log.custom.unit}`;
+    if (log.meal) return `${Math.round(log.meal.kcal)} kcal`;
     return "";
   }
 
@@ -153,7 +154,12 @@ export default function LogsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold">Logs</h1>
-        <p className="text-sm text-stone-600">Weight is stored in kg. Workouts are type workout.</p>
+        <p className="text-sm text-stone-600">
+          Weight is stored in kg. Workouts are type workout. Meal photos live on the{" "}
+          <Link to="/meals" className="underline">
+            Meals
+          </Link>{" "}page.
+        </p>
       </div>
 
       {error ? <p className="text-sm text-red-700">{error}</p> : null}

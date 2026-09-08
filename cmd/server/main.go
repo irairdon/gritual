@@ -12,6 +12,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/irairdon/gritual/internal/ai"
 	"github.com/irairdon/gritual/internal/auth"
 	"github.com/irairdon/gritual/internal/challenges"
 	"github.com/irairdon/gritual/internal/circles"
@@ -19,6 +20,7 @@ import (
 	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/httpx"
 	"github.com/irairdon/gritual/internal/logs"
+	"github.com/irairdon/gritual/internal/meals"
 	"github.com/irairdon/gritual/internal/media"
 	"github.com/irairdon/gritual/internal/rituals"
 	"github.com/irairdon/gritual/internal/webui"
@@ -84,6 +86,11 @@ func main() {
 		logAPI := logs.New(cfg, pool)
 		mediaAPI := media.New(cfg, pool, authAPI.RequestUserID)
 		chalAPI := challenges.New(cfg, pool)
+		var vision ai.Provider
+		if cfg.AIEnabled && cfg.XAIAPIKey != "" {
+			vision = ai.NewClient(cfg.XAIAPIKey, nil)
+		}
+		mealAPI := meals.New(cfg, pool, mediaAPI, vision)
 		mountAPI = func(r chi.Router) {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
@@ -91,6 +98,7 @@ func main() {
 			logAPI.Mount(r)
 			mediaAPI.Mount(r)
 			chalAPI.Mount(r)
+			mealAPI.Mount(r)
 		}
 		mediaGET = mediaAPI.HandleGet
 	}

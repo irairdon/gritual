@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -45,14 +46,20 @@ type objectJSON struct {
 	Bytes       int    `json:"bytes"`
 }
 
+type Stored struct {
+	ID     uuid.UUID
+	SHA256 []byte
+	JPEG   []byte
+}
+
 func (a *API) handleUpload(w http.ResponseWriter, r *http.Request) {
 	uid, ok := a.lookup(r)
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
-	if err := r.ParseMultipartForm(maxUpload); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxUpload)
+	if err := r.ParseMultipartForm(MaxUpload); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid", "file too large or invalid multipart")
 		return
 	}
@@ -63,46 +70,49 @@ func (a *API) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	encoded, err := transcode(io.LimitReader(f, maxUpload+1))
+	stored, err := a.StoreJPEG(r.Context(), uid, io.LimitReader(f, MaxUpload+1))
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid", "not an image")
-		return
-	}
-
-	sum := sha256.Sum256(encoded)
-	// PR path: MEDIA_DIR/{user_id}/{sha256}.jpeg (not the sha256[0:2] backup sketch).
-	rel := filepath.Join(uid.String(), hex.EncodeToString(sum[:])+".jpeg")
-	dest := filepath.Join(a.cfg.MediaDir, rel)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		slog.Error("media mkdir", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
-		return
-	}
-	if err := os.WriteFile(dest, encoded, 0o644); err != nil {
-		slog.Error("media write", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
-		return
-	}
-
-	var id uuid.UUID
-	var contentType string
-	var nbytes int
-	err = a.pool.QueryRow(r.Context(), `
-		INSERT INTO media_objects (user_id, sha256, content_type, bytes, path)
-		VALUES ($1, $2, 'image/jpeg', $3, $4)
-		ON CONFLICT (user_id, sha256) DO UPDATE SET path = media_objects.path
-		RETURNING id, content_type, bytes
-	`, uid, sum[:], len(encoded), rel).Scan(&id, &contentType, &nbytes)
-	if err != nil {
-		slog.Error("media insert", "err", err)
+		if err == ErrInvalid {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid", "not an image")
+			return
+		}
+		slog.Error("media store", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, objectJSON{
-		ID:          id.String(),
-		ContentType: contentType,
-		Bytes:       nbytes,
+		ID:          stored.ID.String(),
+		ContentType: "image/jpeg",
+		Bytes:       len(stored.JPEG),
 	})
+}
+
+func (a *API) StoreJPEG(ctx context.Context, userID uuid.UUID, r io.Reader) (*Stored, error) {
+	encoded, err := transcode(r)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(encoded)
+	// PR path: MEDIA_DIR/{user_id}/{sha256}.jpeg (not the sha256[0:2] backup sketch).
+	rel := filepath.Join(userID.String(), hex.EncodeToString(sum[:])+".jpeg")
+	dest := filepath.Join(a.cfg.MediaDir, rel)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(dest, encoded, 0o644); err != nil {
+		return nil, err
+	}
+	var id uuid.UUID
+	err = a.pool.QueryRow(ctx, `
+		INSERT INTO media_objects (user_id, sha256, content_type, bytes, path)
+		VALUES ($1, $2, 'image/jpeg', $3, $4)
+		ON CONFLICT (user_id, sha256) DO UPDATE SET path = media_objects.path
+		RETURNING id
+	`, userID, sum[:], len(encoded), rel).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return &Stored{ID: id, SHA256: sum[:], JPEG: encoded}, nil
 }
 
 func (a *API) HandleGet(w http.ResponseWriter, r *http.Request) {
