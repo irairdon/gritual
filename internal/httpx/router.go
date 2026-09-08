@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 
@@ -16,28 +17,54 @@ import (
 	"github.com/google/uuid"
 )
 
+func init() {
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
+
 type ctxKey int
 
 const requestIDKey ctxKey = 1
 
-func NewRouter(ui fs.FS) http.Handler {
+type pinger interface {
+	Ping(ctx context.Context) error
+}
+
+func NewRouter(ui fs.FS, db pinger, mountAPI func(chi.Router), mediaGET http.HandlerFunc) http.Handler {
+	return NewRouterMCP(ui, db, mountAPI, mediaGET, nil)
+}
+
+func NewRouterMCP(ui fs.FS, db pinger, mountAPI func(chi.Router), mediaGET http.HandlerFunc, mcp http.Handler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID)
 
 	r.Get("/healthz", handleHealth)
-	r.Get("/readyz", handleHealth)
+	r.Get("/readyz", handleReady(db))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/ping", handlePing)
+		if mountAPI != nil {
+			mountAPI(r)
+		}
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+			WriteError(w, http.StatusNotFound, "not_found", "not found")
+		})
+		r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
 			WriteError(w, http.StatusNotFound, "not_found", "not found")
 		})
 	})
 
-	r.Get("/mcp", handleMCP)
-	r.Post("/mcp", handleMCP)
+	if mcp != nil {
+		r.Get("/mcp", mcp.ServeHTTP)
+		r.Post("/mcp", mcp.ServeHTTP)
+	} else {
+		r.Get("/mcp", handleMCP)
+		r.Post("/mcp", handleMCP)
+	}
 
-	r.Get("/media/{id}", handleMedia)
+	if mediaGET == nil {
+		mediaGET = handleMedia
+	}
+	r.Get("/media/{id}", mediaGET)
 
 	r.Get("/.well-known/apple-app-site-association", handleAASA)
 	r.Get("/.well-known/assetlinks.json", handleAssetLinks)
@@ -86,10 +113,49 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *statusWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, "ok")
+}
+
+func handleReady(db pinger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if hasPinger(db) {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			if err := db.Ping(ctx); err != nil {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = io.WriteString(w, "not ready")
+				return
+			}
+		}
+		handleHealth(w, r)
+	}
+}
+
+func hasPinger(db pinger) bool {
+	if db == nil {
+		return false
+	}
+	v := reflect.ValueOf(db)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan:
+		return !v.IsNil()
+	default:
+		return true
+	}
 }
 
 func handlePing(w http.ResponseWriter, _ *http.Request) {
@@ -106,16 +172,21 @@ func handleMedia(w http.ResponseWriter, _ *http.Request) {
 	http.NotFound(w, nil)
 }
 
+// Team ID / Play signing fingerprints land with the v1.1 store bundle (app.gritual.mobile).
+const aasaJSON = `{"applinks":{"apps":[],"details":[{"appID":"app.gritual.mobile","paths":["*"]}]}}`
+
+const assetLinksJSON = `[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.gritual.mobile","sha256_cert_fingerprints":[]}}]`
+
 func handleAASA(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "{}")
+	_, _ = io.WriteString(w, aasaJSON)
 }
 
 func handleAssetLinks(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "[]")
+	_, _ = io.WriteString(w, assetLinksJSON)
 }
 
 func serveUI(ui fs.FS) http.HandlerFunc {
@@ -144,6 +215,9 @@ func serveUI(ui fs.FS) http.HandlerFunc {
 				}
 				if strings.HasPrefix(clean, "/assets/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else if clean == "/sw.js" {
+					// SW must revalidate so a new shell/assets precache can install.
+					w.Header().Set("Cache-Control", "no-cache")
 				}
 				writeFSFile(w, rel, f)
 				return

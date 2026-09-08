@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -18,8 +19,14 @@ func TestRouter(t *testing.T) {
 		"assets/app-deadbeef.js": &fstest.MapFile{
 			Data: []byte("console.log(1)"),
 		},
+		"sw.js": &fstest.MapFile{
+			Data: []byte("/* sw */"),
+		},
+		"manifest.webmanifest": &fstest.MapFile{
+			Data: []byte(`{"name":"Gritual"}`),
+		},
 	}
-	h := NewRouter(ui)
+	h := NewRouter(ui, nil, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -99,7 +106,8 @@ func TestRouter(t *testing.T) {
 			path:       "/.well-known/apple-app-site-association",
 			wantStatus: http.StatusOK,
 			wantCT:     "application/json",
-			wantBody:   "{}",
+			wantBody:   "app.gritual.mobile",
+			notHTML:    true,
 		},
 		{
 			name:       "assetlinks well-known json array",
@@ -107,7 +115,27 @@ func TestRouter(t *testing.T) {
 			path:       "/.well-known/assetlinks.json",
 			wantStatus: http.StatusOK,
 			wantCT:     "application/json",
-			wantBody:   "[]",
+			wantBody:   "app.gritual.mobile",
+			notHTML:    true,
+		},
+		{
+			name:       "service worker is not spa",
+			method:     http.MethodGet,
+			path:       "/sw.js",
+			wantStatus: http.StatusOK,
+			wantCT:     "javascript",
+			wantBody:   "/* sw */",
+			wantCache:  "no-cache",
+			notHTML:    true,
+		},
+		{
+			name:       "manifest is not spa",
+			method:     http.MethodGet,
+			path:       "/manifest.webmanifest",
+			wantStatus: http.StatusOK,
+			wantCT:     "application/manifest+json",
+			wantBody:   "Gritual",
+			notHTML:    true,
 		},
 		{
 			name:       "spa root",
@@ -226,6 +254,101 @@ func TestRouter(t *testing.T) {
 			}
 			if tt.echoReqID != "" && reqID != tt.echoReqID {
 				t.Fatalf("X-Request-Id = %q, want %q", reqID, tt.echoReqID)
+			}
+		})
+	}
+}
+
+func TestWellKnownNativeAppIDs(t *testing.T) {
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Gritual</title><p>spa</p>")},
+	}
+	h := NewRouter(ui, nil, nil, nil)
+
+	t.Run("aasa", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/apple-app-site-association", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.Bytes())
+		}
+		var doc struct {
+			Applinks struct {
+				Details []struct {
+					AppID string   `json:"appID"`
+					Paths []string `json:"paths"`
+				} `json:"details"`
+			} `json:"applinks"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, d := range doc.Applinks.Details {
+			if d.AppID == "app.gritual.mobile" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing app.gritual.mobile: %s", rec.Body.Bytes())
+		}
+	})
+
+	t.Run("assetlinks", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/assetlinks.json", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.Bytes())
+		}
+		var docs []struct {
+			Target struct {
+				Namespace   string `json:"namespace"`
+				PackageName string `json:"package_name"`
+			} `json:"target"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &docs); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, d := range docs {
+			if d.Target.Namespace == "android_app" && d.Target.PackageName == "app.gritual.mobile" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing app.gritual.mobile: %s", rec.Body.Bytes())
+		}
+	})
+}
+
+type stubPinger struct{ err error }
+
+func (s stubPinger) Ping(context.Context) error { return s.err }
+
+func TestReadyz(t *testing.T) {
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html>")},
+	}
+	tests := []struct {
+		name       string
+		db         pinger
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "no db", db: nil, wantStatus: http.StatusOK, wantBody: "ok"},
+		{name: "typed nil pointer", db: (*stubPinger)(nil), wantStatus: http.StatusOK, wantBody: "ok"},
+		{name: "ping ok", db: stubPinger{}, wantStatus: http.StatusOK, wantBody: "ok"},
+		{name: "ping fail", db: stubPinger{err: io.ErrUnexpectedEOF}, wantStatus: http.StatusServiceUnavailable, wantBody: "not ready"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+			rec := httptest.NewRecorder()
+			NewRouter(ui, tt.db, nil, nil).ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %q, want substring %q", rec.Body.String(), tt.wantBody)
 			}
 		})
 	}

@@ -11,8 +11,26 @@ import (
 
 	_ "time/tzdata"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/irairdon/gritual/internal/ai"
+	"github.com/irairdon/gritual/internal/auth"
+	"github.com/irairdon/gritual/internal/challenges"
+	"github.com/irairdon/gritual/internal/chat"
+	"github.com/irairdon/gritual/internal/circles"
+	"github.com/irairdon/gritual/internal/config"
+	"github.com/irairdon/gritual/internal/db"
+	"github.com/irairdon/gritual/internal/feed"
 	"github.com/irairdon/gritual/internal/httpx"
+	"github.com/irairdon/gritual/internal/jobs"
+	"github.com/irairdon/gritual/internal/logs"
+	"github.com/irairdon/gritual/internal/mcp"
+	"github.com/irairdon/gritual/internal/meals"
+	"github.com/irairdon/gritual/internal/media"
+	"github.com/irairdon/gritual/internal/rituals"
+	"github.com/irairdon/gritual/internal/tools"
 	"github.com/irairdon/gritual/internal/webui"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -25,11 +43,12 @@ func main() {
 		},
 	})))
 
-	httpAddr := env("HTTP_ADDR", ":8080")
-	metricsAddr := env("METRICS_ADDR", "127.0.0.1:9090")
-	_ = env("APP_BASE_URL", "http://localhost:8080")
-	mediaDir := env("MEDIA_DIR", "./data/media")
-	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+	if err := os.MkdirAll(cfg.MediaDir, 0o755); err != nil {
 		slog.Error("mkdir media", "err", err)
 		os.Exit(1)
 	}
@@ -40,28 +59,91 @@ func main() {
 		os.Exit(1)
 	}
 
+	var pool *pgxpool.Pool
+	if cfg.DatabaseURL != "" {
+		openCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		p, err := db.Open(openCtx, cfg.DatabaseURL)
+		cancel()
+		if err != nil {
+			slog.Error("db open", "err", err)
+			os.Exit(1)
+		}
+		defer p.Close()
+		migCtx, migCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		err = db.RunMigrations(migCtx, p)
+		migCancel()
+		if err != nil {
+			slog.Error("migrations", "err", err)
+			os.Exit(1)
+		}
+		pool = p
+	} else {
+		slog.Warn("DATABASE_URL unset; starting without database")
+	}
+
+	var ready httpxPinger
+	var mountAPI func(chi.Router)
+	var mediaGET http.HandlerFunc
+	var mcpH http.Handler
+	var jobPoller *jobs.Poller
+	if pool != nil {
+		ready = pool
+		authAPI := auth.New(cfg, pool)
+		circAPI := circles.New(cfg, pool)
+		ritAPI := rituals.New(cfg, pool)
+		logAPI := logs.New(cfg, pool)
+		mediaAPI := media.New(cfg, pool, authAPI.RequestUserID)
+		chalAPI := challenges.New(cfg, pool)
+		var provider ai.Provider
+		if cfg.AIEnabled && cfg.XAIAPIKey != "" {
+			provider = ai.NewClient(cfg.XAIAPIKey, nil)
+		}
+		mealAPI := meals.New(cfg, pool, mediaAPI, provider)
+		feedAPI := feed.New(cfg, pool)
+		toolRunner := tools.New(logAPI, mealAPI, ritAPI, chalAPI, func(ctx context.Context, userID uuid.UUID) (string, error) {
+			var tz string
+			err := pool.QueryRow(ctx, `SELECT tz FROM users WHERE id = $1`, userID).Scan(&tz)
+			return tz, err
+		})
+		chatAPI := chat.New(cfg, pool, provider, toolRunner)
+		mcpH = mcp.New(cfg, authAPI, toolRunner)
+		jobPoller = jobs.New(cfg, pool, chalAPI)
+		mountAPI = func(r chi.Router) {
+			authAPI.Mount(r)
+			circAPI.Mount(r)
+			ritAPI.Mount(r)
+			logAPI.Mount(r)
+			mediaAPI.Mount(r)
+			chalAPI.Mount(r)
+			mealAPI.Mount(r)
+			feedAPI.Mount(r)
+			chatAPI.Mount(r)
+		}
+		mediaGET = mediaAPI.HandleGet
+	}
+
 	public := &http.Server{
-		Addr:              httpAddr,
-		Handler:           httpx.NewRouter(ui),
+		Addr:              cfg.HTTPAddr,
+		Handler:           httpx.NewRouterMCP(ui, ready, mountAPI, mediaGET, mcpH),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
 	}
 	metrics := &http.Server{
-		Addr:              metricsAddr,
+		Addr:              cfg.MetricsAddr,
 		Handler:           httpx.MetricsMux(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	errCh := make(chan error, 2)
 	go func() {
-		slog.Info("http listen", "addr", httpAddr)
+		slog.Info("http listen", "addr", cfg.HTTPAddr)
 		if err := public.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()
 	go func() {
-		slog.Info("metrics listen", "addr", metricsAddr)
+		slog.Info("metrics listen", "addr", cfg.MetricsAddr)
 		if err := metrics.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
@@ -69,6 +151,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if jobPoller != nil {
+		go jobPoller.Run(ctx)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -83,9 +168,6 @@ func main() {
 	_ = metrics.Shutdown(shutdownCtx)
 }
 
-func env(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+type httpxPinger interface {
+	Ping(context.Context) error
 }
