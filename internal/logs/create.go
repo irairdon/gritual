@@ -19,6 +19,7 @@ type logFields struct {
 	LoggedAt   *time.Time
 	Notes      *string
 	Visibility *string
+	Source     string
 }
 
 type weightReq struct {
@@ -254,6 +255,10 @@ func (a *API) insertLog(ctx context.Context, userID uuid.UUID, typ string, field
 	if fields.LoggedAt != nil {
 		loggedAt = fields.LoggedAt.UTC()
 	}
+	source := strings.TrimSpace(fields.Source)
+	if source == "" {
+		source = "app"
+	}
 
 	tx, err := a.pool.Begin(ctx)
 	if err != nil {
@@ -273,9 +278,9 @@ func (a *API) insertLog(ctx context.Context, userID uuid.UUID, typ string, field
 	var id uuid.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO logs (user_id, ritual_id, challenge_id, type, logged_at, visibility, notes, source)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'app')
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
-	`, userID, fields.RitualID, challengeID, typ, loggedAt, vis, trimPtr(fields.Notes)).Scan(&id)
+	`, userID, fields.RitualID, challengeID, typ, loggedAt, vis, trimPtr(fields.Notes), source).Scan(&id)
 	if err != nil {
 		return nil, err
 	}

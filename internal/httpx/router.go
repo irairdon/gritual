@@ -26,6 +26,10 @@ type pinger interface {
 }
 
 func NewRouter(ui fs.FS, db pinger, mountAPI func(chi.Router), mediaGET http.HandlerFunc) http.Handler {
+	return NewRouterMCP(ui, db, mountAPI, mediaGET, nil)
+}
+
+func NewRouterMCP(ui fs.FS, db pinger, mountAPI func(chi.Router), mediaGET http.HandlerFunc, mcp http.Handler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID)
 
@@ -45,8 +49,13 @@ func NewRouter(ui fs.FS, db pinger, mountAPI func(chi.Router), mediaGET http.Han
 		})
 	})
 
-	r.Get("/mcp", handleMCP)
-	r.Post("/mcp", handleMCP)
+	if mcp != nil {
+		r.Get("/mcp", mcp.ServeHTTP)
+		r.Post("/mcp", mcp.ServeHTTP)
+	} else {
+		r.Get("/mcp", handleMCP)
+		r.Post("/mcp", handleMCP)
+	}
 
 	if mediaGET == nil {
 		mediaGET = handleMedia
@@ -98,6 +107,16 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *statusWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {

@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import AuthMagicPage from "./pages/AuthMagicPage";
 import ChallengePage from "./pages/ChallengePage";
 import CirclePage from "./pages/CirclePage";
+import CoachPage from "./pages/CoachPage";
 import HomePage from "./pages/HomePage";
 import JoinPage from "./pages/JoinPage";
 import LoginPage from "./pages/LoginPage";
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/rituals" element={<RitualsPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/meals" element={<MealsPage />} />
+        <Route path="/coach" element={<CoachPage />} />
         <Route path="/join/:token" element={<JoinPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
