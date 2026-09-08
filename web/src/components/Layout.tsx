@@ -1,5 +1,30 @@
+import { useEffect, useState } from "react";
 import { Link, Outlet } from "react-router-dom";
 import { useAuth } from "../auth";
+
+function OfflineBanner() {
+  const [offline, setOffline] = useState(() => (typeof navigator !== "undefined" ? !navigator.onLine : false));
+
+  useEffect(() => {
+    const goOnline = () => setOffline(false);
+    const goOffline = () => setOffline(true);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  if (!offline) {
+    return null;
+  }
+  return (
+    <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950">
+      You’re offline
+    </div>
+  );
+}
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -52,6 +77,7 @@ export default function Layout() {
           </nav>
         </div>
       </header>
+      <OfflineBanner />
       <main className="mx-auto max-w-3xl px-4 py-8">
         <Outlet />
       </main>
