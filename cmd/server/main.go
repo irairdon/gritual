@@ -11,6 +11,7 @@ import (
 
 	_ "time/tzdata"
 
+	"github.com/irairdon/gritual/internal/db"
 	"github.com/irairdon/gritual/internal/httpx"
 	"github.com/irairdon/gritual/internal/webui"
 )
@@ -40,9 +41,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	var ready interface {
+		Ping(context.Context) error
+	}
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		openCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		p, err := db.Open(openCtx, dsn)
+		cancel()
+		if err != nil {
+			slog.Error("db open", "err", err)
+			os.Exit(1)
+		}
+		defer p.Close()
+		migCtx, migCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		err = db.RunMigrations(migCtx, p)
+		migCancel()
+		if err != nil {
+			slog.Error("migrations", "err", err)
+			os.Exit(1)
+		}
+		ready = p
+	} else {
+		slog.Warn("DATABASE_URL unset; starting without database")
+	}
+
 	public := &http.Server{
 		Addr:              httpAddr,
-		Handler:           httpx.NewRouter(ui),
+		Handler:           httpx.NewRouter(ui, ready),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
