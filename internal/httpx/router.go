@@ -20,12 +20,16 @@ type ctxKey int
 
 const requestIDKey ctxKey = 1
 
-func NewRouter(ui fs.FS) http.Handler {
+type pinger interface {
+	Ping(ctx context.Context) error
+}
+
+func NewRouter(ui fs.FS, db pinger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID)
 
 	r.Get("/healthz", handleHealth)
-	r.Get("/readyz", handleHealth)
+	r.Get("/readyz", handleReady(db))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/ping", handlePing)
@@ -90,6 +94,22 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, "ok")
+}
+
+func handleReady(db pinger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if db != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			if err := db.Ping(ctx); err != nil {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = io.WriteString(w, "not ready")
+				return
+			}
+		}
+		handleHealth(w, r)
+	}
 }
 
 func handlePing(w http.ResponseWriter, _ *http.Request) {

@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -19,7 +20,7 @@ func TestRouter(t *testing.T) {
 			Data: []byte("console.log(1)"),
 		},
 	}
-	h := NewRouter(ui)
+	h := NewRouter(ui, nil)
 
 	tests := []struct {
 		name       string
@@ -226,6 +227,39 @@ func TestRouter(t *testing.T) {
 			}
 			if tt.echoReqID != "" && reqID != tt.echoReqID {
 				t.Fatalf("X-Request-Id = %q, want %q", reqID, tt.echoReqID)
+			}
+		})
+	}
+}
+
+type stubPinger struct{ err error }
+
+func (s stubPinger) Ping(context.Context) error { return s.err }
+
+func TestReadyz(t *testing.T) {
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html>")},
+	}
+	tests := []struct {
+		name       string
+		db         pinger
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "no db", db: nil, wantStatus: http.StatusOK, wantBody: "ok"},
+		{name: "ping ok", db: stubPinger{}, wantStatus: http.StatusOK, wantBody: "ok"},
+		{name: "ping fail", db: stubPinger{err: io.ErrUnexpectedEOF}, wantStatus: http.StatusServiceUnavailable, wantBody: "not ready"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+			rec := httptest.NewRecorder()
+			NewRouter(ui, tt.db).ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %q, want substring %q", rec.Body.String(), tt.wantBody)
 			}
 		})
 	}
