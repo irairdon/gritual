@@ -289,6 +289,11 @@ func (a *API) insertLog(ctx context.Context, userID uuid.UUID, typ string, field
 		`, id, *ritualCircle); err != nil {
 			return nil, err
 		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO feed_posts (circle_id, user_id, log_id) VALUES ($1, $2, $3)
+		`, *ritualCircle, userID, id); err != nil {
+			return nil, err
+		}
 	}
 	if challengeCircle != nil {
 		if _, err := tx.Exec(ctx, `
@@ -296,6 +301,13 @@ func (a *API) insertLog(ctx context.Context, userID uuid.UUID, typ string, field
 			ON CONFLICT DO NOTHING
 		`, id, *challengeCircle); err != nil {
 			return nil, err
+		}
+		if vis == "challenge" {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO feed_posts (circle_id, user_id, log_id, challenge_id) VALUES ($1, $2, $3, $4)
+			`, *challengeCircle, userID, id, challengeID); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

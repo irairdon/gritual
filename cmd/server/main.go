@@ -18,6 +18,7 @@ import (
 	"github.com/irairdon/gritual/internal/circles"
 	"github.com/irairdon/gritual/internal/config"
 	"github.com/irairdon/gritual/internal/db"
+	"github.com/irairdon/gritual/internal/feed"
 	"github.com/irairdon/gritual/internal/httpx"
 	"github.com/irairdon/gritual/internal/logs"
 	"github.com/irairdon/gritual/internal/meals"
@@ -91,6 +92,7 @@ func main() {
 			vision = ai.NewClient(cfg.XAIAPIKey, nil)
 		}
 		mealAPI := meals.New(cfg, pool, mediaAPI, vision)
+		feedAPI := feed.New(cfg, pool)
 		mountAPI = func(r chi.Router) {
 			authAPI.Mount(r)
 			circAPI.Mount(r)
@@ -99,6 +101,7 @@ func main() {
 			mediaAPI.Mount(r)
 			chalAPI.Mount(r)
 			mealAPI.Mount(r)
+			feedAPI.Mount(r)
 		}
 		mediaGET = mediaAPI.HandleGet
 	}
