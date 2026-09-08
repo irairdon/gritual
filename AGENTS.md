@@ -31,8 +31,7 @@ internal/   # auth, circles, rituals, logs, meals, ai, mcp, scoring, webui, jobs
 web/        # Vite SPA
 internal/webui
 mobile/     # v1.1 Capacitor; webDir ../internal/webui/dist
-deploy/cloudflared/   # v1 prod: gritual.fit → app:8080
-deploy/homestead/     # optional later; not v1 prod
+deploy/cloudflared/   # v1 prod: house Linux + compose; gritual.fit → app:8080
 
 ## Dev
 - `make dev` — Vite :5173 proxies `/api`, `/media`, `/healthz`, `/readyz`, `/mcp` to Go :8080 + compose Postgres. Do not proxy `/metrics`.
